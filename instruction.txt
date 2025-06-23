@@ -1,1 +1,0 @@
-To turn the python script into a .exe, open the terminal il the file "clown9" and run ".\python_exe.ps1" (on windows)

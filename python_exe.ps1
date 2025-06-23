@@ -1,1 +1,0 @@
-python -m PyInstaller --onefile --windowed clown9.py
