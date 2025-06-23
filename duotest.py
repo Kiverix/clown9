@@ -10,8 +10,8 @@ SERVER_ADDRESS = ('79.127.217.197', 22912)
 class CombinedServerApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Server Monitor")
-        self.root.geometry("800x600")
+        self.root.title("clown9.exe")
+        self.root.geometry("800x800")
         
         # Create main container
         self.main_frame = ttk.Frame(root)
