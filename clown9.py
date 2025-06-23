@@ -5,6 +5,7 @@ from threading import Thread
 import queue
 from datetime import datetime
 import os
+import webbrowser
 
 SERVER_ADDRESS = ('79.127.217.197', 22912)
 
@@ -73,7 +74,7 @@ class CombinedServerApp:
         self.players_tree = ttk.Treeview(self.players_frame, columns=('name', 'score', 'duration'), show='headings')
         self.players_tree.heading('name', text='Player Name')
         self.players_tree.heading('score', text='Score')
-        self.players_tree.heading('duration', text='Time Played (sec)')
+        self.players_tree.heading('duration', text='Time Played')
         
         self.players_tree.column('name', width=400)
         self.players_tree.column('score', width=150, anchor=tk.CENTER)
@@ -104,13 +105,29 @@ class CombinedServerApp:
         self.status_var.set("Ready")
         self.status_bar = ttk.Label(self.main_frame, textvariable=self.status_var, relief=tk.SUNKEN)
         self.status_bar.pack(fill=tk.X, pady=(10, 0))
+
+        # Add hyperlink label in the bottom left corner
+        self.link_label = tk.Label(
+            self.main_frame,
+            text="gaq9.com",
+            fg="blue",
+            cursor="hand2",
+            font=("Arial", 10, "underline"),
+            anchor="w"
+        )
+        self.link_label.pack(side=tk.LEFT, anchor="sw", pady=(0, 5))
+        self.link_label.bind("<Button-1>", lambda e: webbrowser.open_new("https://gaq9.com"))
         
         self.queue = queue.Queue()
         self.auto_refresh_id = None
         
+        self.player_data = []  # Store player info and initial durations
+        self.player_data_time = None  # Store the time when data was fetched
+        
         self.refresh_data()
         self.root.after(100, self.process_queue)
         self.root.after(50, self.update_map_display)
+        self.root.after(1000, self.update_player_durations)  # Start the timer
         self.toggle_auto_refresh()
     
     def toggle_auto_refresh(self):
@@ -221,18 +238,32 @@ class CombinedServerApp:
                 for item in self.players_tree.get_children():
                     self.players_tree.delete(item)
                 
+                # Store player data and fetch time
+                self.player_data = []
                 for player in players:
+                    self.player_data.append({
+                        "name": player.name,
+                        "score": player.score,
+                        "duration": float(player.duration)
+                    })
+                self.player_data_time = datetime.now()
+
+                # Insert into treeview
+                for pdata in self.player_data:
+                    minutes = int(pdata["duration"]) // 60
+                    seconds = int(pdata["duration"]) % 60
+                    duration_str = f"{minutes}:{seconds:02d}"
                     self.players_tree.insert('', tk.END, values=(
-                        player.name,
-                        player.score,
-                        f"{player.duration:.1f}"
+                        pdata["name"],
+                        pdata["score"],
+                        duration_str
                     ))
                 
                 self.status_var.set(f"Last updated: {datetime.now().strftime('%H:%M:%S')} | {len(players)} players online")
             
             elif result[0] == 'error':
-                messagebox.showerror("Error", f"Failed to query server:\n{result[1]}")
-                self.status_var.set("Error querying server")
+                self.status_var.set("Error querying server, retrying...")
+                self.refresh_data()  # Retry immediately
             
             self.refresh_button.config(state=tk.NORMAL)
             
@@ -241,6 +272,24 @@ class CombinedServerApp:
         
         self.root.after(100, self.process_queue)
 
+    def update_player_durations(self):
+        # Only update if we have player data and fetch time
+        if self.player_data and self.player_data_time:
+            elapsed = (datetime.now() - self.player_data_time).total_seconds()
+            for idx, pdata in enumerate(self.player_data):
+                updated_duration = pdata["duration"] + elapsed
+                minutes = int(updated_duration) // 60
+                seconds = int(updated_duration) % 60
+                duration_str = f"{minutes}:{seconds:02d}"
+                # Update the treeview item
+                item_id = self.players_tree.get_children()[idx]
+                self.players_tree.item(item_id, values=(
+                    pdata["name"],
+                    pdata["score"],
+                    duration_str
+                ))
+        self.root.after(1000, self.update_player_durations)
+    
 if __name__ == "__main__":
     root = tk.Tk()
     app = CombinedServerApp(root)
