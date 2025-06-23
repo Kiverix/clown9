@@ -214,7 +214,8 @@ class CombinedServerApp:
             
             if result[0] == 'success':
                 info, players = result[1], result[2]
-                self.map_label.config(text=f"Map: {info.map_name}")
+                map_name = info.map_name if info.map_name else "unknown"
+                self.map_label.config(text=f"Map: {map_name}")
                 self.player_count_label.config(text=f"Players: {info.player_count}/{info.max_players}")
                 
                 for item in self.players_tree.get_children():
