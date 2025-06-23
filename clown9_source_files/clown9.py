@@ -133,12 +133,15 @@ class CombinedServerApp:
         self.player_data_time = None
 
         self.sound_played_minute = None
+
+        self.connecting_dots = 0
         
         self.refresh_data()
         self.root.after(100, self.process_queue)
         self.root.after(50, self.update_map_display)
         self.root.after(1000, self.update_player_durations)
         self.toggle_auto_refresh()
+        self.root.after(250, self.animate_connecting)
     
     def toggle_auto_refresh(self):
         if self.auto_refresh_var.get():
@@ -220,7 +223,7 @@ class CombinedServerApp:
         self.adjacent_label.config(text=f"Previous Map Cycle: {prev_map} | Next Map Cycle: {next_map}")
         self.countdown_label.config(text=f"Next cycle in: {mins_left:02d}m {secs_left:02d}s")
 
-        if mins_left == 0 and secs_left >= 59:
+        if utc_now.minute == 59 and utc_now.second == 0:
             if self.sound_played_minute != utc_now.hour:
                 sound_path = os.path.join(os.getcwd(), "AIM_Sound.mp3")
                 if os.path.exists(sound_path):
@@ -229,7 +232,7 @@ class CombinedServerApp:
                     except Exception:
                         pass
                 self.sound_played_minute = utc_now.hour
-        elif mins_left != 0:
+        elif utc_now.minute != 59:
             self.sound_played_minute = None
         
         self.root.after(50, self.update_map_display)
@@ -247,9 +250,14 @@ class CombinedServerApp:
         except Exception as e:
             self.queue.put(('error', str(e)))
     
+    def animate_connecting(self):
+        self.connecting_dots = (self.connecting_dots + 1) % 4
+        self.root.after(500, self.animate_connecting)
+
     def clean_player_name(self, name):
         if not name or name.lower() == "unknown":
-            return "connecting..."
+            dots = '.' * self.connecting_dots
+            return f"connecting{dots}"
         try:
             name = unicodedata.normalize('NFKC', name)
             name = ''.join(c for c in name if c.isprintable())
@@ -284,11 +292,14 @@ class CombinedServerApp:
                     minutes = int(pdata["duration"]) // 60
                     seconds = int(pdata["duration"]) % 60
                     duration_str = f"{minutes}:{seconds:02d}"
-                    self.players_tree.insert('', tk.END, values=(
+                    item_id = self.players_tree.insert('', tk.END, values=(
                         name,
                         pdata["score"],
                         duration_str
                     ))
+                    if name.strip().lower() == "the clown":
+                        self.players_tree.tag_configure("bold_clown", font=("Arial", 10, "bold"))
+                        self.players_tree.item(item_id, tags=("bold_clown",))
                 
                 self.status_var.set(f"Last updated: {datetime.now().strftime('%H:%M:%S')} | {len(players)} players online")
             
