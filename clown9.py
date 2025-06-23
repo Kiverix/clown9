@@ -244,3 +244,5 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = CombinedServerApp(root)
     root.mainloop()
+
+# Made by "the clown", @chernobyl_bag on Anomalous Materials

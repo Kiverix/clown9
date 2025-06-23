@@ -11,12 +11,10 @@ class ServerQueryApp:
         self.root = root
         self.root.title("Server Query Tool")
         self.root.geometry("500x400")
-        
-        # Create main container
+
         self.main_frame = ttk.Frame(root, padding="10")
         self.main_frame.pack(fill=tk.BOTH, expand=True)
-        
-        # Server info section
+
         ttk.Label(self.main_frame, text="Server Info", font=('Arial', 12, 'bold')).grid(row=0, column=0, sticky=tk.W)
         
         self.info_frame = ttk.LabelFrame(self.main_frame, text="Current Map")
@@ -24,14 +22,12 @@ class ServerQueryApp:
         
         self.map_label = ttk.Label(self.info_frame, text="Loading...", font=('Arial', 14))
         self.map_label.pack(pady=5)
-        
-        # Players section
+
         ttk.Label(self.main_frame, text="Players Online", font=('Arial', 12, 'bold')).grid(row=2, column=0, sticky=tk.W, pady=(10,0))
         
         self.players_frame = ttk.Frame(self.main_frame)
         self.players_frame.grid(row=3, column=0, sticky="nsew")
-        
-        # Treeview for players
+
         self.players_tree = ttk.Treeview(self.players_frame, columns=('name', 'score', 'duration'), show='headings')
         self.players_tree.heading('name', text='Player Name')
         self.players_tree.heading('score', text='Score')
@@ -46,42 +42,33 @@ class ServerQueryApp:
         
         self.players_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        # Refresh button
+
         self.refresh_button = ttk.Button(self.main_frame, text="Refresh", command=self.refresh_data)
         self.refresh_button.grid(row=4, column=0, pady=10)
-        
-        # Status bar
+
         self.status_var = tk.StringVar()
         self.status_var.set("Ready")
         self.status_bar = ttk.Label(self.main_frame, textvariable=self.status_var, relief=tk.SUNKEN)
         self.status_bar.grid(row=5, column=0, sticky="ew", pady=(5,0))
-        
-        # Queue for thread communication
+
         self.queue = queue.Queue()
         
-        # Initial data load
         self.refresh_data()
         
-        # Check for updates from the thread
         self.root.after(100, self.process_queue)
     
     def refresh_data(self):
         self.status_var.set("Querying server...")
         self.refresh_button.config(state=tk.DISABLED)
         
-        # Run the query in a separate thread to avoid freezing the GUI
         Thread(target=self.query_server, daemon=True).start()
     
     def query_server(self):
         try:
-            # Get server info
             info = a2s.info(SERVER_ADDRESS)
             
-            # Get player list
             players = a2s.players(SERVER_ADDRESS)
             
-            # Put results in the queue
             self.queue.put(('success', info, players))
             
         except Exception as e:
@@ -94,14 +81,11 @@ class ServerQueryApp:
             if result[0] == 'success':
                 info, players = result[1], result[2]
                 
-                # Update map info
                 self.map_label.config(text=f"{info.map_name} ({info.player_count}/{info.max_players} players)")
                 
-                # Clear existing player list
                 for item in self.players_tree.get_children():
                     self.players_tree.delete(item)
                 
-                # Add players to the treeview
                 for player in players:
                     self.players_tree.insert('', tk.END, values=(
                         player.name,
