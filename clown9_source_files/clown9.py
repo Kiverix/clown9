@@ -37,6 +37,9 @@ class CombinedServerApp:
         self.player_count_label = ttk.Label(self.server_info_frame, text="Players: -/-", font=('Arial', 12))
         self.player_count_label.pack()
         
+        self.joinable_label = ttk.Label(self.server_info_frame, text="", font=('Arial', 10, "bold"))
+        self.joinable_label.pack()
+        
         self.map_cycle_frame = ttk.LabelFrame(self.top_frame, text="Map Cycle", width=300)
         self.map_cycle_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
         
@@ -274,6 +277,11 @@ class CombinedServerApp:
                 map_name = info.map_name if info.map_name else "unknown"
                 self.map_label.config(text=f"Map: {map_name}")
                 self.player_count_label.config(text=f"Players: {info.player_count}/{info.max_players}")
+
+                if map_name.lower() == "2fort":
+                    self.joinable_label.config(text="Server is joinable!", foreground="green")
+                else:
+                    self.joinable_label.config(text="Server is NOT joinable.", foreground="red")
                 
                 for item in self.players_tree.get_children():
                     self.players_tree.delete(item)
