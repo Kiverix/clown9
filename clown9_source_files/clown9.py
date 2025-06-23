@@ -388,9 +388,9 @@ class CombinedServerApp:
                 self.player_count_label.config(text=f"Players: {info.player_count}/{info.max_players}")
 
                 if map_name.lower() == "2fort":
-                    self.joinable_label.config(text="Server is joinable!", foreground="green")
+                    self.joinable_label.config(text="Server is joinable on TF2.", foreground="green")
                 else:
-                    self.joinable_label.config(text="Server is NOT joinable.", foreground="red")
+                    self.joinable_label.config(text="Server is NOT joinable on TF2.", foreground="red")
                 
                 for item in self.players_tree.get_children():
                     self.players_tree.delete(item)
