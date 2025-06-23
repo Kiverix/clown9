@@ -117,7 +117,15 @@ class CombinedServerApp:
         )
         self.link_label.pack(side=tk.LEFT, anchor="sw", pady=(0, 5))
         self.link_label.bind("<Button-1>", lambda e: webbrowser.open_new("https://gaq9.com"))
-        
+
+        self.kulcs_label = tk.Label(
+            self.main_frame,
+            text="Key means Kulcs in Hungarian",
+            font=("Arial", 10, "bold"),
+            anchor="e"
+        )
+        self.kulcs_label.pack(side=tk.RIGHT, anchor="se", pady=(0, 5))
+
         self.queue = queue.Queue()
         self.auto_refresh_id = None
         
