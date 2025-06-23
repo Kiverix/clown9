@@ -6,6 +6,8 @@ import queue
 from datetime import datetime
 import os
 import webbrowser
+import winsound
+import unicodedata
 
 SERVER_ADDRESS = ('79.127.217.197', 22912)
 
@@ -14,10 +16,9 @@ class CombinedServerApp:
         self.root = root
         self.root.title("clown9.exe")
         self.root.geometry("800x600")
-        
+
         try:
-            img = tk.PhotoImage(file="sourceclown.png")
-            self.root.iconphoto(True, img)
+            self.root.iconbitmap("sourceclown.ico")
         except:
             pass
 
@@ -106,7 +107,6 @@ class CombinedServerApp:
         self.status_bar = ttk.Label(self.main_frame, textvariable=self.status_var, relief=tk.SUNKEN)
         self.status_bar.pack(fill=tk.X, pady=(10, 0))
 
-        # Add hyperlink label in the bottom left corner
         self.link_label = tk.Label(
             self.main_frame,
             text="gaq9.com",
@@ -121,13 +121,15 @@ class CombinedServerApp:
         self.queue = queue.Queue()
         self.auto_refresh_id = None
         
-        self.player_data = []  # Store player info and initial durations
-        self.player_data_time = None  # Store the time when data was fetched
+        self.player_data = []
+        self.player_data_time = None
+
+        self.sound_played_minute = None
         
         self.refresh_data()
         self.root.after(100, self.process_queue)
         self.root.after(50, self.update_map_display)
-        self.root.after(1000, self.update_player_durations)  # Start the timer
+        self.root.after(1000, self.update_player_durations)
         self.toggle_auto_refresh()
     
     def toggle_auto_refresh(self):
@@ -209,6 +211,18 @@ class CombinedServerApp:
         self.current_map_label.config(text=f"Current Map Cycle: {current_map}")
         self.adjacent_label.config(text=f"Previous Map Cycle: {prev_map} | Next Map Cycle: {next_map}")
         self.countdown_label.config(text=f"Next cycle in: {mins_left:02d}m {secs_left:02d}s")
+
+        if mins_left == 0 and secs_left >= 59:
+            if self.sound_played_minute != utc_now.hour:
+                sound_path = os.path.join(os.getcwd(), "AIM_Sound.mp3")
+                if os.path.exists(sound_path):
+                    try:
+                        winsound.PlaySound(sound_path, winsound.SND_FILENAME | winsound.SND_ASYNC)
+                    except Exception:
+                        pass
+                self.sound_played_minute = utc_now.hour
+        elif mins_left != 0:
+            self.sound_played_minute = None
         
         self.root.after(50, self.update_map_display)
     
@@ -225,6 +239,16 @@ class CombinedServerApp:
         except Exception as e:
             self.queue.put(('error', str(e)))
     
+    def clean_player_name(self, name):
+        if not name or name.lower() == "unknown":
+            return "connecting..."
+        try:
+            name = unicodedata.normalize('NFKC', name)
+            name = ''.join(c for c in name if c.isprintable())
+            return name
+        except Exception:
+            return name
+    
     def process_queue(self):
         try:
             result = self.queue.get_nowait()
@@ -238,7 +262,6 @@ class CombinedServerApp:
                 for item in self.players_tree.get_children():
                     self.players_tree.delete(item)
                 
-                # Store player data and fetch time
                 self.player_data = []
                 for player in players:
                     self.player_data.append({
@@ -248,13 +271,13 @@ class CombinedServerApp:
                     })
                 self.player_data_time = datetime.now()
 
-                # Insert into treeview
                 for pdata in self.player_data:
+                    name = self.clean_player_name(pdata["name"])
                     minutes = int(pdata["duration"]) // 60
                     seconds = int(pdata["duration"]) % 60
                     duration_str = f"{minutes}:{seconds:02d}"
                     self.players_tree.insert('', tk.END, values=(
-                        pdata["name"],
+                        name,
                         pdata["score"],
                         duration_str
                     ))
@@ -263,7 +286,7 @@ class CombinedServerApp:
             
             elif result[0] == 'error':
                 self.status_var.set("Error querying server, retrying...")
-                self.refresh_data()  # Retry immediately
+                self.refresh_data()
             
             self.refresh_button.config(state=tk.NORMAL)
             
@@ -273,18 +296,17 @@ class CombinedServerApp:
         self.root.after(100, self.process_queue)
 
     def update_player_durations(self):
-        # Only update if we have player data and fetch time
         if self.player_data and self.player_data_time:
             elapsed = (datetime.now() - self.player_data_time).total_seconds()
             for idx, pdata in enumerate(self.player_data):
+                name = self.clean_player_name(pdata["name"])
                 updated_duration = pdata["duration"] + elapsed
                 minutes = int(updated_duration) // 60
                 seconds = int(updated_duration) % 60
                 duration_str = f"{minutes}:{seconds:02d}"
-                # Update the treeview item
                 item_id = self.players_tree.get_children()[idx]
                 self.players_tree.item(item_id, values=(
-                    pdata["name"],
+                    name,
                     pdata["score"],
                     duration_str
                 ))
