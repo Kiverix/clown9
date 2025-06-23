@@ -17,12 +17,35 @@ class CombinedServerApp:
         self.root.title("clown9.exe")
         self.root.geometry("800x600")
 
+        # Dark mode flag
+        self.dark_mode = False
+        
         try:
             self.root.iconbitmap("sourceclown.ico")
         except:
             pass
 
-        self.main_frame = ttk.Frame(root)
+        self.create_widgets()
+        self.setup_ui()
+        
+        self.queue = queue.Queue()
+        self.auto_refresh_id = None
+        
+        self.player_data = []
+        self.player_data_time = None
+
+        self.sound_played_minute = None
+        self.connecting_dots = 0
+        
+        self.refresh_data()
+        self.root.after(100, self.process_queue)
+        self.root.after(50, self.update_map_display)
+        self.root.after(1000, self.update_player_durations)
+        self.toggle_auto_refresh()
+        self.root.after(250, self.animate_connecting)
+    
+    def create_widgets(self):
+        self.main_frame = ttk.Frame(self.root)
         self.main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         self.top_frame = ttk.Frame(self.main_frame)
@@ -31,13 +54,13 @@ class CombinedServerApp:
         self.server_info_frame = ttk.LabelFrame(self.top_frame, text="Server Info", width=300)
         self.server_info_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
         
-        self.map_label = ttk.Label(self.server_info_frame, text="Loading...", font=('Arial', 14))
+        self.map_label = tk.Label(self.server_info_frame, text="Loading...", font=('Arial', 14))
         self.map_label.pack(pady=5)
         
-        self.player_count_label = ttk.Label(self.server_info_frame, text="Players: -/-", font=('Arial', 12))
+        self.player_count_label = tk.Label(self.server_info_frame, text="Players: -/-", font=('Arial', 12))
         self.player_count_label.pack()
         
-        self.joinable_label = ttk.Label(self.server_info_frame, text="", font=('Arial', 10, "bold"))
+        self.joinable_label = tk.Label(self.server_info_frame, text="", font=('Arial', 10, "bold"))
         self.joinable_label.pack()
         
         self.map_cycle_frame = ttk.LabelFrame(self.top_frame, text="Map Cycle", width=300)
@@ -105,6 +128,14 @@ class CombinedServerApp:
         )
         self.auto_refresh_check.pack(side=tk.LEFT)
         
+        # Add dark mode toggle button
+        self.dark_mode_button = ttk.Button(
+            self.bottom_frame,
+            text="Toggle Dark Mode",
+            command=self.toggle_dark_mode
+        )
+        self.dark_mode_button.pack(side=tk.LEFT, padx=10)
+        
         self.status_var = tk.StringVar()
         self.status_var.set("Ready")
         self.status_bar = ttk.Label(self.main_frame, textvariable=self.status_var, relief=tk.SUNKEN)
@@ -128,24 +159,102 @@ class CombinedServerApp:
             anchor="e"
         )
         self.kulcs_label.pack(side=tk.RIGHT, anchor="se", pady=(0, 5))
-
-        self.queue = queue.Queue()
-        self.auto_refresh_id = None
-        
-        self.player_data = []
-        self.player_data_time = None
-
-        self.sound_played_minute = None
-
-        self.connecting_dots = 0
-        
-        self.refresh_data()
-        self.root.after(100, self.process_queue)
-        self.root.after(50, self.update_map_display)
-        self.root.after(1000, self.update_player_durations)
-        self.toggle_auto_refresh()
-        self.root.after(250, self.animate_connecting)
     
+    def setup_ui(self):
+        """Set initial UI colors based on dark mode state"""
+        if self.dark_mode:
+            self.apply_dark_theme()
+        else:
+            self.apply_light_theme()
+    
+    def toggle_dark_mode(self):
+        """Toggle between dark and light mode"""
+        self.dark_mode = not self.dark_mode
+        if self.dark_mode:
+            self.apply_dark_theme()
+        else:
+            self.apply_light_theme()
+    
+    def apply_dark_theme(self):
+        """Apply dark theme colors"""
+        bg_color = "#2d2d2d"
+        fg_color = "#ffffff"
+        entry_bg = "#3d3d3d"
+        frame_bg = "#252525"
+        
+        # Main window
+        self.root.configure(bg=bg_color)
+        
+        # Configure styles
+        style = ttk.Style()
+        style.theme_use('alt')  # Use a theme that works better with dark mode
+        
+        # Configure frame styles
+        style.configure('TFrame', background=bg_color)
+        style.configure('TLabelframe', background=bg_color, foreground=fg_color)
+        style.configure('TLabelframe.Label', background=bg_color, foreground=fg_color)
+        
+        # Configure label styles (only for tk Labels)
+        tk_labels = [
+            self.map_label, self.player_count_label, self.joinable_label,
+            self.current_map_label, self.adjacent_label, self.countdown_label,
+            self.time_label, self.kulcs_label
+        ]
+        
+        for label in tk_labels:
+            label.configure(bg=bg_color, fg=fg_color)
+        
+        # Link label should stay blue
+        self.link_label.configure(bg=bg_color, fg="blue")
+        
+        # Treeview
+        style.configure("Treeview", 
+                       background=entry_bg,
+                       foreground=fg_color,
+                       fieldbackground=entry_bg)
+        style.configure("Treeview.Heading", 
+                       background=frame_bg,
+                       foreground=fg_color)
+        style.map('Treeview', background=[('selected', '#4a6987')])
+        
+        # Buttons
+        style.configure('TButton', 
+                       background=frame_bg, 
+                       foreground=fg_color,
+                       bordercolor=frame_bg)
+        
+        # Checkbutton
+        style.configure('TCheckbutton', 
+                       background=bg_color, 
+                       foreground=fg_color)
+        
+        # Status bar
+        style.configure('TLabel', background=frame_bg, foreground=fg_color)
+    
+    def apply_light_theme(self):
+        """Apply light theme colors (default)"""
+        # Reset to default theme
+        style = ttk.Style()
+        style.theme_use('default')
+        
+        # Main window
+        self.root.configure(bg="SystemButtonFace")
+        
+        # Configure label styles (only for tk Labels)
+        tk_labels = [
+            self.map_label, self.player_count_label, self.joinable_label,
+            self.current_map_label, self.adjacent_label, self.countdown_label,
+            self.time_label, self.kulcs_label
+        ]
+        
+        for label in tk_labels:
+            label.configure(bg="SystemButtonFace", fg="black")
+        
+        # Link label should stay blue
+        self.link_label.configure(bg="SystemButtonFace", fg="blue")
+
+    # ... [rest of your existing methods remain unchanged] ...
+
     def toggle_auto_refresh(self):
         if self.auto_refresh_var.get():
             self.schedule_auto_refresh()
@@ -343,5 +452,3 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = CombinedServerApp(root)
     root.mainloop()
-
-# Made by "the clown", @chernobyl_bag on Anomalous Materials
