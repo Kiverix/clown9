@@ -40,11 +40,9 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.central_widget)
         self.layout = QVBoxLayout(self.central_widget)
 
-        # Top Info
         self.top_frame = QHBoxLayout()
         self.layout.addLayout(self.top_frame)
 
-        # Server Info
         self.server_info_frame = QVBoxLayout()
         self.top_frame.addLayout(self.server_info_frame, 1)
 
@@ -56,7 +54,6 @@ class MainWindow(QMainWindow):
         self.player_count_label.setFont(QFont("Arial", 12))
         self.server_info_frame.addWidget(self.player_count_label)
 
-        # Map Cycle Info
         self.map_cycle_frame = QVBoxLayout()
         self.top_frame.addLayout(self.map_cycle_frame, 1)
 
@@ -80,7 +77,6 @@ class MainWindow(QMainWindow):
         self.time_label.setAlignment(Qt.AlignCenter)
         self.map_cycle_frame.addWidget(self.time_label)
 
-        # Player Table
         self.players_frame = QVBoxLayout()
         self.layout.addLayout(self.players_frame, 3)
 
@@ -100,7 +96,6 @@ class MainWindow(QMainWindow):
         self.no_players_label.hide()
         self.players_frame.addWidget(self.no_players_label)
 
-        # Bottom Controls
         self.bottom_frame = QHBoxLayout()
         self.layout.addLayout(self.bottom_frame)
 
@@ -115,23 +110,19 @@ class MainWindow(QMainWindow):
 
         self.bottom_frame.addStretch()
 
-        # Status bar
         self.status_bar = QLabel("Ready")
         self.status_bar.setFrameStyle(QFrame.Panel | QFrame.Sunken)
         self.layout.addWidget(self.status_bar)
 
-        # Bottom left link
         self.link_label = QLabel('<a href="https://gaq9.com" style="color:blue;">gaq9.com</a>')
         self.link_label.setFont(QFont("Arial", 10, QFont.Underline))
         self.link_label.setOpenExternalLinks(True)
         self.layout.addWidget(self.link_label, alignment=Qt.AlignLeft | Qt.AlignBottom)
 
-        # Bottom right info
         self.kulcs_label = QLabel('<b>Key means Kulcs in Hungarian</b>')
         self.kulcs_label.setFont(QFont("Arial", 10, QFont.Bold))
         self.layout.addWidget(self.kulcs_label, alignment=Qt.AlignRight | Qt.AlignBottom)
 
-        # Timers
         self.auto_refresh_timer = QTimer()
         self.auto_refresh_timer.timeout.connect(self.refresh_data)
         self.toggle_auto_refresh()
@@ -202,7 +193,6 @@ class MainWindow(QMainWindow):
         self.adjacent_label.setText(f"Previous Map Cycle: {prev_map} | Next Map Cycle: {next_map}")
         self.countdown_label.setText(f"Next cycle in: {mins_left:02d}m {secs_left:02d}s")
 
-        # Only play at exactly xx:59:00
         if utc_now.minute == 59 and utc_now.second == 0:
             if self.sound_played_minute != utc_now.hour:
                 sound_path = os.path.join(os.getcwd(), "AIM_Sound.mp3")

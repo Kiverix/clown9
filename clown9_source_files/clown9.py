@@ -17,8 +17,7 @@ class CombinedServerApp:
         self.root.title("clown9.exe")
         self.root.geometry("800x600")
 
-        # Dark mode flag
-        self.dark_mode = False
+        self.dark_mode = True
         
         try:
             self.root.iconbitmap("sourceclown.ico")
@@ -128,7 +127,6 @@ class CombinedServerApp:
         )
         self.auto_refresh_check.pack(side=tk.LEFT)
         
-        # Add dark mode toggle button
         self.dark_mode_button = ttk.Button(
             self.bottom_frame,
             text="Toggle Dark Mode",
@@ -182,19 +180,15 @@ class CombinedServerApp:
         entry_bg = "#3d3d3d"
         frame_bg = "#252525"
         
-        # Main window
         self.root.configure(bg=bg_color)
         
-        # Configure styles
         style = ttk.Style()
-        style.theme_use('alt')  # Use a theme that works better with dark mode
+        style.theme_use('alt')
         
-        # Configure frame styles
         style.configure('TFrame', background=bg_color)
         style.configure('TLabelframe', background=bg_color, foreground=fg_color)
         style.configure('TLabelframe.Label', background=bg_color, foreground=fg_color)
         
-        # Configure label styles (only for tk Labels)
         tk_labels = [
             self.map_label, self.player_count_label, self.joinable_label,
             self.current_map_label, self.adjacent_label, self.countdown_label,
@@ -204,10 +198,8 @@ class CombinedServerApp:
         for label in tk_labels:
             label.configure(bg=bg_color, fg=fg_color)
         
-        # Link label should stay blue
         self.link_label.configure(bg=bg_color, fg="blue")
         
-        # Treeview
         style.configure("Treeview", 
                        background=entry_bg,
                        foreground=fg_color,
@@ -217,30 +209,24 @@ class CombinedServerApp:
                        foreground=fg_color)
         style.map('Treeview', background=[('selected', '#4a6987')])
         
-        # Buttons
         style.configure('TButton', 
                        background=frame_bg, 
                        foreground=fg_color,
                        bordercolor=frame_bg)
         
-        # Checkbutton
         style.configure('TCheckbutton', 
                        background=bg_color, 
                        foreground=fg_color)
         
-        # Status bar
         style.configure('TLabel', background=frame_bg, foreground=fg_color)
     
     def apply_light_theme(self):
         """Apply light theme colors (default)"""
-        # Reset to default theme
         style = ttk.Style()
         style.theme_use('default')
         
-        # Main window
         self.root.configure(bg="SystemButtonFace")
         
-        # Configure label styles (only for tk Labels)
         tk_labels = [
             self.map_label, self.player_count_label, self.joinable_label,
             self.current_map_label, self.adjacent_label, self.countdown_label,
@@ -250,10 +236,7 @@ class CombinedServerApp:
         for label in tk_labels:
             label.configure(bg="SystemButtonFace", fg="black")
         
-        # Link label should stay blue
         self.link_label.configure(bg="SystemButtonFace", fg="blue")
-
-    # ... [rest of your existing methods remain unchanged] ...
 
     def toggle_auto_refresh(self):
         if self.auto_refresh_var.get():
