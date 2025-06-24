@@ -15,7 +15,7 @@ class CombinedServerApp:
     def __init__(self, root):
         self.root = root
         self.root.title("clown9.exe")
-        self.root.geometry("800x600")
+        self.root.geometry("800x800")
 
         self.dark_mode = True
         
@@ -23,7 +23,7 @@ class CombinedServerApp:
             self.root.iconbitmap("sourceclown.ico")
         except:
             pass
-
+        
         self.create_widgets()
         self.setup_ui()
         
@@ -32,7 +32,7 @@ class CombinedServerApp:
         
         self.player_data = []
         self.player_data_time = None
-
+        
         self.sound_played_minute = None
         self.connecting_dots = 0
         
