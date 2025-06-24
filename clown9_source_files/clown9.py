@@ -32,7 +32,7 @@ class CombinedServerApp:
         
         self.player_data = []
         self.player_data_time = None
-        
+
         self.sound_played_minute = None
         self.connecting_dots = 0
         
@@ -298,7 +298,7 @@ class CombinedServerApp:
             next_hour = 0
         next_map = self.get_map_based_on_utc_hour(next_hour)
         
-        seconds_remaining = (60 - current_second) % 60
+        seconds_remaining = (59 - current_second) % 60
         minutes_remaining = (59 - current_minute) % 60
         
         return prev_map, next_map, minutes_remaining, seconds_remaining
