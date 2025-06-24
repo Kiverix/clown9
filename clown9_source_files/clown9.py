@@ -219,6 +219,9 @@ class CombinedServerApp:
                        foreground=fg_color)
         
         style.configure('TLabel', background=frame_bg, foreground=fg_color)
+        self.status_var.set("Querying server...")
+        self.refresh_button.config(state=tk.DISABLED)
+        Thread(target=self.query_server, daemon=True).start()
     
     def apply_light_theme(self):
         """Apply light theme colors (default)"""
@@ -237,6 +240,9 @@ class CombinedServerApp:
             label.configure(bg="SystemButtonFace", fg="black")
         
         self.link_label.configure(bg="SystemButtonFace", fg="blue")
+        self.status_var.set("Querying server...")
+        self.refresh_button.config(state=tk.DISABLED)
+        Thread(target=self.query_server, daemon=True).start()
 
     def toggle_auto_refresh(self):
         if self.auto_refresh_var.get():
