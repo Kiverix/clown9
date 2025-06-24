@@ -63,7 +63,10 @@ class CombinedServerApp:
         
         self.joinable_label = tk.Label(self.server_info_frame, text="", font=('Arial', 10, "bold"))
         self.joinable_label.pack()
-        
+
+        self.sourcetv_status_label = tk.Label(self.server_info_frame, text="SourceTV: Checking...", font=('Arial', 10))
+        self.sourcetv_status_label.pack(pady=(10, 0))
+
         self.map_cycle_frame = ttk.LabelFrame(self.top_frame, text="Map Cycle", width=300)
         self.map_cycle_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
         
@@ -450,18 +453,19 @@ class CombinedServerApp:
         """Check if SourceTV is accessible and update status"""
         try:
             info = a2s.info(SOURCETV_ADDRESS, timeout=2.0)
-            sourcetv_status = "SourceTV: Online"
+            sourcetv_status = "SourceTV: "
+            status_text = "Online"
+            status_color = "green"
         except Exception as e:
-            sourcetv_status = "SourceTV: Offline"
+            sourcetv_status = "SourceTV: "
+            status_text = "Offline"
+            status_color = "red"
 
-        current_status = self.status_var.get()
-        if "SourceTV:" not in current_status:
-            self.status_var.set(f"{current_status} | {sourcetv_status}")
-        else:
-            parts = current_status.split("|")
-            if len(parts) >= 2:
-                parts[-1] = f" {sourcetv_status}"
-                self.status_var.set("|".join(parts))
+        # Set label with colored status
+        self.sourcetv_status_label.config(
+            text=sourcetv_status + status_text,
+            fg=status_color
+        )
         
         self.root.after(30000, self.check_sourcetv)
 
