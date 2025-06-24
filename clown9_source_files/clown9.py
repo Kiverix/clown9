@@ -10,6 +10,7 @@ import winsound
 import unicodedata
 
 SERVER_ADDRESS = ('79.127.217.197', 22912)
+SOURCETV_ADDRESS = ('79.127.217.197', 22913)
 
 class CombinedServerApp:
     def __init__(self, root):
@@ -42,6 +43,7 @@ class CombinedServerApp:
         self.root.after(1000, self.update_player_durations)
         self.toggle_auto_refresh()
         self.root.after(250, self.animate_connecting)
+        self.root.after(10000, self.check_sourcetv)
     
     def create_widgets(self):
         self.main_frame = ttk.Frame(self.root)
@@ -347,6 +349,13 @@ class CombinedServerApp:
         try:
             info = a2s.info(SERVER_ADDRESS)
             players = a2s.players(SERVER_ADDRESS)
+            
+            if not info.map_name or info.map_name.lower() == "unknown":
+                current_cycle_map = self.get_map_based_on_utc_hour()
+                
+                if current_cycle_map in ["ask", "askask"]:
+                    info.map_name = current_cycle_map
+            
             self.queue.put(('success', info, players))
         except Exception as e:
             self.queue.put(('error', str(e)))
@@ -437,6 +446,25 @@ class CombinedServerApp:
                 ))
         self.root.after(1000, self.update_player_durations)
     
+    def check_sourcetv(self):
+        """Check if SourceTV is accessible and update status"""
+        try:
+            info = a2s.info(SOURCETV_ADDRESS, timeout=2.0)
+            sourcetv_status = "SourceTV: Online"
+        except Exception as e:
+            sourcetv_status = "SourceTV: Offline"
+
+        current_status = self.status_var.get()
+        if "SourceTV:" not in current_status:
+            self.status_var.set(f"{current_status} | {sourcetv_status}")
+        else:
+            parts = current_status.split("|")
+            if len(parts) >= 2:
+                parts[-1] = f" {sourcetv_status}"
+                self.status_var.set("|".join(parts))
+        
+        self.root.after(30000, self.check_sourcetv)
+
 if __name__ == "__main__":
     root = tk.Tk()
     app = CombinedServerApp(root)
