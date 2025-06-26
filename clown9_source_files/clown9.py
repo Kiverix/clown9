@@ -479,7 +479,7 @@ class CombinedServerApp:
     def animate_connecting(self):
         # animate connecting dots
         self.connecting_dots = (self.connecting_dots + 1) % 4
-        self.root.after(500, self.animate_connecting)
+        self.root.after(200, self.animate_connecting)
 
     def clean_player_name(self, name):
         # clean player name for display
