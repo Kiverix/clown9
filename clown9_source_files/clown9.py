@@ -9,34 +9,44 @@ import webbrowser
 import winsound
 import unicodedata
 
-SERVER_ADDRESS = ('79.127.217.197', 22912)
-SOURCETV_ADDRESS = ('79.127.217.197', 22913)
+# server addresses
+CGE7_193 = ('79.127.217.197', 22912)
+SOURCE_TV = ('79.127.217.197', 22913)
 
 class CombinedServerApp:
     def __init__(self, root):
+        # main window setup
         self.root = root
         self.root.title("clown9.exe")
         self.root.geometry("800x800")
 
+        # dark mode state
         self.dark_mode = True
         
+        # ordinance tracking
+        self.ordinance_commands = []
+        self.current_command_sequence = []
+        self.in_ordinance_map = False
+        
+        # set window icon
         try:
             self.root.iconbitmap("sourceclown.ico")
         except:
             pass
         
+        # build ui
         self.create_widgets()
         self.setup_ui()
         
+        # data and refresh setup
         self.queue = queue.Queue()
         self.auto_refresh_id = None
-        
         self.player_data = []
         self.player_data_time = None
-
         self.sound_played_minute = None
         self.connecting_dots = 0
         
+        # start refresh loops
         self.refresh_data()
         self.root.after(100, self.process_queue)
         self.root.after(50, self.update_map_display)
@@ -46,6 +56,7 @@ class CombinedServerApp:
         self.root.after(10000, self.check_sourcetv)
     
     def create_widgets(self):
+        # create all ui widgets
         self.main_frame = ttk.Frame(self.root)
         self.main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
@@ -64,9 +75,24 @@ class CombinedServerApp:
         self.joinable_label = tk.Label(self.server_info_frame, text="", font=('Arial', 10, "bold"))
         self.joinable_label.pack()
 
+        # sourcetv status label
         self.sourcetv_status_label = tk.Label(self.server_info_frame, text="SourceTV: Checking...", font=('Arial', 10))
         self.sourcetv_status_label.pack(pady=(10, 0))
 
+        # ordinance commands frame
+        self.ordinance_frame = ttk.LabelFrame(self.server_info_frame, text="Ordinance Commands")
+        self.ordinance_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        self.ordinance_label = tk.Label(
+            self.ordinance_frame,
+            text="No commands recorded",
+            font=("Arial", 10),
+            wraplength=250,
+            justify="left"
+        )
+        self.ordinance_label.pack()
+
+        # map cycle info
         self.map_cycle_frame = ttk.LabelFrame(self.top_frame, text="Map Cycle", width=300)
         self.map_cycle_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
         
@@ -99,6 +125,7 @@ class CombinedServerApp:
         )
         self.time_label.pack()
         
+        # players list
         self.players_frame = ttk.LabelFrame(self.main_frame, text="Players Online")
         self.players_frame.pack(fill=tk.BOTH, expand=True)
         
@@ -117,6 +144,7 @@ class CombinedServerApp:
         self.players_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
+        # bottom bar
         self.bottom_frame = ttk.Frame(self.main_frame)
         self.bottom_frame.pack(fill=tk.X, pady=(10, 0))
         
@@ -139,11 +167,13 @@ class CombinedServerApp:
         )
         self.dark_mode_button.pack(side=tk.LEFT, padx=10)
         
+        # status bar
         self.status_var = tk.StringVar()
         self.status_var.set("Ready")
         self.status_bar = ttk.Label(self.main_frame, textvariable=self.status_var, relief=tk.SUNKEN)
         self.status_bar.pack(fill=tk.X, pady=(10, 0))
 
+        # link label
         self.link_label = tk.Label(
             self.main_frame,
             text="gaq9.com",
@@ -155,6 +185,7 @@ class CombinedServerApp:
         self.link_label.pack(side=tk.LEFT, anchor="sw", pady=(0, 5))
         self.link_label.bind("<Button-1>", lambda e: webbrowser.open_new("https://gaq9.com"))
 
+        # kulcs label
         self.kulcs_label = tk.Label(
             self.main_frame,
             text="Key means Kulcs in Hungarian",
@@ -164,14 +195,14 @@ class CombinedServerApp:
         self.kulcs_label.pack(side=tk.RIGHT, anchor="se", pady=(0, 5))
     
     def setup_ui(self):
-        """Set initial UI colors based on dark mode state"""
+        # set initial ui colors
         if self.dark_mode:
             self.apply_dark_theme()
         else:
             self.apply_light_theme()
     
     def toggle_dark_mode(self):
-        """Toggle between dark and light mode"""
+        # toggle dark/light mode
         self.dark_mode = not self.dark_mode
         if self.dark_mode:
             self.apply_dark_theme()
@@ -179,7 +210,7 @@ class CombinedServerApp:
             self.apply_light_theme()
     
     def apply_dark_theme(self):
-        """Apply dark theme colors"""
+        # set dark theme colors
         bg_color = "#2d2d2d"
         fg_color = "#ffffff"
         entry_bg = "#3d3d3d"
@@ -197,7 +228,7 @@ class CombinedServerApp:
         tk_labels = [
             self.map_label, self.player_count_label, self.joinable_label,
             self.current_map_label, self.adjacent_label, self.countdown_label,
-            self.time_label, self.kulcs_label
+            self.time_label, self.kulcs_label, self.ordinance_label
         ]
         
         for label in tk_labels:
@@ -229,7 +260,7 @@ class CombinedServerApp:
         Thread(target=self.query_server, daemon=True).start()
     
     def apply_light_theme(self):
-        """Apply light theme colors (default)"""
+        # set light theme colors
         style = ttk.Style()
         style.theme_use('default')
         
@@ -238,7 +269,7 @@ class CombinedServerApp:
         tk_labels = [
             self.map_label, self.player_count_label, self.joinable_label,
             self.current_map_label, self.adjacent_label, self.countdown_label,
-            self.time_label, self.kulcs_label
+            self.time_label, self.kulcs_label, self.ordinance_label
         ]
         
         for label in tk_labels:
@@ -250,6 +281,7 @@ class CombinedServerApp:
         Thread(target=self.query_server, daemon=True).start()
 
     def toggle_auto_refresh(self):
+        # toggle auto refresh
         if self.auto_refresh_var.get():
             self.schedule_auto_refresh()
         else:
@@ -258,11 +290,13 @@ class CombinedServerApp:
                 self.auto_refresh_id = None
     
     def schedule_auto_refresh(self):
+        # schedule auto refresh
         if self.auto_refresh_var.get():
             self.refresh_data()
             self.auto_refresh_id = self.root.after(5000, self.schedule_auto_refresh)
     
     def get_map_based_on_utc_hour(self, hour=None):
+        # get map name based on utc hour
         if hour is None:
             hour = datetime.utcnow().hour
         
@@ -295,6 +329,7 @@ class CombinedServerApp:
         return map_hours[hour]
     
     def get_adjacent_maps(self):
+        # get previous and next map in cycle
         current_hour = datetime.utcnow().hour
         current_minute = datetime.utcnow().minute
         current_second = datetime.utcnow().second
@@ -315,6 +350,7 @@ class CombinedServerApp:
         return prev_map, next_map, minutes_remaining, seconds_remaining
     
     def update_map_display(self):
+        # update map and time display
         utc_now = datetime.utcnow()
         local_now = datetime.now()
         
@@ -344,14 +380,16 @@ class CombinedServerApp:
         self.root.after(50, self.update_map_display)
     
     def refresh_data(self):
+        # refresh server data
         self.status_var.set("Querying server...")
         self.refresh_button.config(state=tk.DISABLED)
         Thread(target=self.query_server, daemon=True).start()
     
     def query_server(self):
+        # query server and process ordinance logic
         try:
-            info = a2s.info(SERVER_ADDRESS)
-            players = a2s.players(SERVER_ADDRESS)
+            info = a2s.info(CGE7_193)
+            players = a2s.players(CGE7_193)
             
             if not info.map_name or info.map_name.lower() == "unknown":
                 current_cycle_map = self.get_map_based_on_utc_hour()
@@ -359,15 +397,92 @@ class CombinedServerApp:
                 if current_cycle_map in ["ask", "askask"]:
                     info.map_name = current_cycle_map
             
+            if info.map_name.lower() == "ordinance":
+                if not self.in_ordinance_map:
+                    self.in_ordinance_map = True
+                    self.current_command_sequence = []
+                self.process_ordinance_commands(players)
+            else:
+                if self.in_ordinance_map:
+                    self.in_ordinance_map = False
+                    if self.current_command_sequence:
+                        self.ordinance_commands.append(" ".join(self.current_command_sequence) + " REN")
+                        self.current_command_sequence = []
+                        self.update_ordinance_display()
+            
             self.queue.put(('success', info, players))
         except Exception as e:
             self.queue.put(('error', str(e)))
     
+    def process_ordinance_commands(self, players):
+        # process ordinance commands and save to file when ren is detected
+        valid_commands = {
+            "xufunc": "XU",
+            "ydfunc": "YD",
+            "xdfunc": "XD",
+            "yufunc": "YU",
+            "zufunc": "ZU",
+            "zdfunc": "ZD",
+            "afunc": "A",
+            "bfunc": "B",
+            "cfunc": "C"
+        }
+        
+        for player in players:
+            if hasattr(player, 'name') and player.name:
+                name = player.name.lower()
+                for cmd_key, cmd_short in valid_commands.items():
+                    if cmd_key in name:
+                        if cmd_short not in self.current_command_sequence:
+                            self.current_command_sequence.append(cmd_short)
+        
+        if self.current_command_sequence and any("ren" in p.name.lower() for p in players if hasattr(p, 'name') and p.name):
+            # save to file when ren is detected
+            sequence_str = " ".join(self.current_command_sequence) + " REN"
+            timestamp = datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S")  # use utc time
+            filename = f"ordinance_sequence_{timestamp}.txt"
+
+            # get connected players at ren
+            player_list = []
+            for p in players:
+                if hasattr(p, 'name') and p.name:
+                    player_list.append(self.clean_player_name(p.name))
+            player_list_str = "\n".join(player_list)
+
+            with open(filename, "w") as f:
+                f.write(f"UTC Timestamp: {timestamp}\n")
+                f.write("Ordinance Sequence:\n")
+                f.write(sequence_str + "\n\n")
+                f.write("Connected Players at REN:\n")
+                f.write(player_list_str + "\n")
+
+            # append to master log
+            with open("ordinance_master_log.txt", "a") as f:
+                f.write(f"{timestamp}: {sequence_str} | Players: {', '.join(player_list)}\n")
+
+            self.ordinance_commands.append(sequence_str)
+            self.current_command_sequence = []
+            self.update_ordinance_display()
+    
+    def update_ordinance_display(self):
+        # update ordinance command display
+        if not self.ordinance_commands:
+            self.ordinance_label.config(text="No commands recorded")
+            return
+        
+        display_text = "Recent commands:\n"
+        for cmd in reversed(self.ordinance_commands[-3:]):
+            display_text += f"• {cmd}\n"
+        
+        self.ordinance_label.config(text=display_text.strip())
+    
     def animate_connecting(self):
+        # animate connecting dots
         self.connecting_dots = (self.connecting_dots + 1) % 4
         self.root.after(500, self.animate_connecting)
 
     def clean_player_name(self, name):
+        # clean player name for display
         if not name or name.lower() == "unknown":
             dots = '.' * self.connecting_dots
             return f"connecting{dots}"
@@ -379,6 +494,7 @@ class CombinedServerApp:
             return name
     
     def process_queue(self):
+        # process server response queue
         try:
             result = self.queue.get_nowait()
             
@@ -433,6 +549,7 @@ class CombinedServerApp:
         self.root.after(100, self.process_queue)
 
     def update_player_durations(self):
+        # update player durations in the list
         if self.player_data and self.player_data_time:
             elapsed = (datetime.now() - self.player_data_time).total_seconds()
             for idx, pdata in enumerate(self.player_data):
@@ -450,9 +567,9 @@ class CombinedServerApp:
         self.root.after(1000, self.update_player_durations)
     
     def check_sourcetv(self):
-        """Check if SourceTV is accessible and update status"""
+        # check if sourcetv is online and update label
         try:
-            info = a2s.info(SOURCETV_ADDRESS, timeout=2.0)
+            info = a2s.info(SOURCE_TV, timeout=2.0)
             sourcetv_status = "SourceTV: "
             status_text = "Online"
             status_color = "green"
@@ -461,7 +578,6 @@ class CombinedServerApp:
             status_text = "Offline"
             status_color = "red"
 
-        # Set label with colored status
         self.sourcetv_status_label.config(
             text=sourcetv_status + status_text,
             fg=status_color
@@ -469,6 +585,7 @@ class CombinedServerApp:
         
         self.root.after(30000, self.check_sourcetv)
 
+# run the app
 if __name__ == "__main__":
     root = tk.Tk()
     app = CombinedServerApp(root)
