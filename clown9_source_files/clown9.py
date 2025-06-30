@@ -8,6 +8,7 @@ import os
 import webbrowser
 import winsound
 import unicodedata
+import sys
 
 # server addresses
 CGE7_193 = ('79.127.217.197', 22912)
@@ -27,7 +28,11 @@ class CombinedServerApp:
         self.ordinance_commands = []
         self.current_command_sequence = []
         self.in_ordinance_map = False
-        
+
+        # server status tracking
+        self.query_fail_count = 0
+        self.max_query_fails = 5
+
         # set window icon
         try:
             self.root.iconbitmap("sourceclown.ico")
@@ -45,6 +50,12 @@ class CombinedServerApp:
         self.player_data_time = None
         self.sound_played_minute = None
         self.connecting_dots = 0
+        
+        # visited maps tracking
+        self.visited_maps = []  # Track visited ordinance maps
+
+        # simulation mode
+        self.simulation_mode = False  # Track if we're in simulation mode
         
         # start refresh loops
         self.refresh_data()
@@ -80,7 +91,7 @@ class CombinedServerApp:
         self.sourcetv_status_label.pack(pady=(10, 0))
 
         # ordinance commands frame
-        self.ordinance_frame = ttk.LabelFrame(self.server_info_frame, text="Ordinance Commands")
+        self.ordinance_frame = ttk.LabelFrame(self.server_info_frame, text="Latest Ordinance Commands")
         self.ordinance_frame.pack(fill=tk.X, pady=(10, 0))
         
         self.ordinance_label = tk.Label(
@@ -167,6 +178,13 @@ class CombinedServerApp:
         )
         self.dark_mode_button.pack(side=tk.LEFT, padx=10)
         
+        self.simulate_button = ttk.Button(
+            self.bottom_frame,
+            text="Simulate Ordinance Maps",
+            command=self.toggle_simulation
+        )
+        self.simulate_button.pack(side=tk.LEFT, padx=10)
+        
         # status bar
         self.status_var = tk.StringVar()
         self.status_var.set("Ready")
@@ -188,7 +206,7 @@ class CombinedServerApp:
         # kulcs label
         self.kulcs_label = tk.Label(
             self.main_frame,
-            text="Key means Kulcs in Hungarian",
+            text="Kulcs means Key in Hungarian. General VC did not 'carry' the investigation.",
             font=("Arial", 10, "bold"),
             anchor="e"
         )
@@ -360,10 +378,35 @@ class CombinedServerApp:
         current_map = self.get_map_based_on_utc_hour()
         prev_map, next_map, mins_left, secs_left = self.get_adjacent_maps()
         
+        # Determine restart status
+        current_minute = utc_now.minute
+        current_second = utc_now.second
+        
+        if current_minute == 59 and current_second >= 0:
+            restart_status = "FIRST RESTART"
+            status_color = "red"
+        elif current_minute == 0 and current_second <= 10:  # Show for first 10 seconds of new hour
+            restart_status = "SECOND RESTART"
+            status_color = "red"
+        else:
+            restart_status = "IN SESSION"
+            status_color = "green"
+        
         self.time_label.config(text=f"UTC: {utc_time} | Local: {local_time}")
         self.current_map_label.config(text=f"Current Map Cycle: {current_map}")
         self.adjacent_label.config(text=f"Previous Map Cycle: {prev_map} | Next Map Cycle: {next_map}")
         self.countdown_label.config(text=f"Next cycle in: {mins_left:02d}m {secs_left:02d}s")
+        
+        # Add restart status label if it doesn't exist
+        if not hasattr(self, 'restart_status_label'):
+            self.restart_status_label = tk.Label(
+                self.map_cycle_frame,
+                font=("Arial", 12, "bold"),
+                justify="center"
+            )
+            self.restart_status_label.pack()
+        
+        self.restart_status_label.config(text=f"Server Status: {restart_status}", fg=status_color)
 
         if utc_now.minute == 59 and utc_now.second == 0:
             if self.sound_played_minute != utc_now.hour:
@@ -390,13 +433,16 @@ class CombinedServerApp:
         try:
             info = a2s.info(CGE7_193)
             players = a2s.players(CGE7_193)
-            
+
+            # Reset fail count on successful query
+            self.query_fail_count = 0
+
             if not info.map_name or info.map_name.lower() == "unknown":
                 current_cycle_map = self.get_map_based_on_utc_hour()
-                
+
                 if current_cycle_map in ["ask", "askask"]:
                     info.map_name = current_cycle_map
-            
+
             if info.map_name.lower() == "ordinance":
                 if not self.in_ordinance_map:
                     self.in_ordinance_map = True
@@ -409,13 +455,17 @@ class CombinedServerApp:
                         self.ordinance_commands.append(" ".join(self.current_command_sequence) + " REN")
                         self.current_command_sequence = []
                         self.update_ordinance_display()
-            
+
             self.queue.put(('success', info, players))
         except Exception as e:
-            self.queue.put(('error', str(e)))
-    
+            self.query_fail_count += 1
+            if self.query_fail_count >= self.max_query_fails:
+                self.queue.put(('offline', None))
+            else:
+                self.queue.put(('error', str(e)))
+
     def process_ordinance_commands(self, players):
-        # process ordinance commands and save to file when ren is detected
+        # Process both player commands and map names
         valid_commands = {
             "xufunc": "XU",
             "ydfunc": "YD",
@@ -425,9 +475,11 @@ class CombinedServerApp:
             "zdfunc": "ZD",
             "afunc": "A",
             "bfunc": "B",
-            "cfunc": "C"
+            "cfunc": "C",
+            "ren": "REN"
         }
         
+        # Process player commands
         for player in players:
             if hasattr(player, 'name') and player.name:
                 name = player.name.lower()
@@ -436,43 +488,37 @@ class CombinedServerApp:
                         if cmd_short not in self.current_command_sequence:
                             self.current_command_sequence.append(cmd_short)
         
+        # Process map name
+        try:
+            info = a2s.info(CGE7_193)
+            if info.map_name.lower().startswith('ord_'):
+                map_cmd = info.map_name[4:].lower()  # Remove 'ord_' prefix
+                if map_cmd in valid_commands:
+                    cmd_short = valid_commands[map_cmd]
+                    if cmd_short not in self.visited_maps:
+                        self.visited_maps.append(cmd_short)
+                        self.update_ordinance_display()
+        except:
+            pass
+        
+        # Check for REN condition
         if self.current_command_sequence and any("ren" in p.name.lower() for p in players if hasattr(p, 'name') and p.name):
-            # save to file when ren is detected
-            sequence_str = " ".join(self.current_command_sequence) + " REN"
-            timestamp = datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S")  # use utc time
-            filename = f"ordinance_sequence_{timestamp}.txt"
-
-            # get connected players at ren
-            player_list = []
-            for p in players:
-                if hasattr(p, 'name') and p.name:
-                    player_list.append(self.clean_player_name(p.name))
-            player_list_str = "\n".join(player_list)
-
-            with open(filename, "w") as f:
-                f.write(f"UTC Timestamp: {timestamp}\n")
-                f.write("Ordinance Sequence:\n")
-                f.write(sequence_str + "\n\n")
-                f.write("Connected Players at REN:\n")
-                f.write(player_list_str + "\n")
-
-            # append to master log
-            with open("ordinance_master_log.txt", "a") as f:
-                f.write(f"{timestamp}: {sequence_str} | Players: {', '.join(player_list)}\n")
-
-            self.ordinance_commands.append(sequence_str)
-            self.current_command_sequence = []
-            self.update_ordinance_display()
+            self.save_ordinance_sequence(players)
     
     def update_ordinance_display(self):
-        # update ordinance command display
-        if not self.ordinance_commands:
-            self.ordinance_label.config(text="No commands recorded")
-            return
+        # Update ordinance command display with both visited maps and player commands
         
-        display_text = "Recent commands:\n"
-        for cmd in reversed(self.ordinance_commands[-3:]):
-            display_text += f"• {cmd}\n"
+        # Show visited maps if any
+        if self.visited_maps:
+            display_text = "Recent commands: " + ", ".join(self.visited_maps) + "\n"
+
+        # Show player commands if any
+        if self.ordinance_commands:
+            for cmd in reversed(self.ordinance_commands[-3:]):
+                display_text += f"• {cmd}\n"
+        
+        if not self.visited_maps and not self.ordinance_commands:
+            display_text = "No commands recorded"
         
         self.ordinance_label.config(text=display_text.strip())
     
@@ -497,7 +543,7 @@ class CombinedServerApp:
         # process server response queue
         try:
             result = self.queue.get_nowait()
-            
+
             if result[0] == 'success':
                 info, players = result[1], result[2]
                 map_name = info.map_name if info.map_name else "unknown"
@@ -508,10 +554,10 @@ class CombinedServerApp:
                     self.joinable_label.config(text="Server is joinable on TF2. Join before it's too late!", foreground="green")
                 else:
                     self.joinable_label.config(text="Server is NOT joinable on TF2. Please wait for the next hour.", foreground="red")
-                
+
                 for item in self.players_tree.get_children():
                     self.players_tree.delete(item)
-                
+
                 self.player_data = []
                 for player in players:
                     self.player_data.append({
@@ -534,18 +580,29 @@ class CombinedServerApp:
                     if name.strip().lower() == "the clown":
                         self.players_tree.tag_configure("bold_clown", font=("Arial", 10, "bold"))
                         self.players_tree.item(item_id, tags=("bold_clown",))
-                
+
                 self.status_var.set(f"Last updated: {datetime.now().strftime('%H:%M:%S')} | {len(players)} players online")
-            
+
             elif result[0] == 'error':
                 self.status_var.set("Error querying server, retrying...")
                 self.refresh_data()
-            
+
+            elif result[0] == 'offline':
+                # Server is offline - update display
+                self.map_label.config(text="CGE7-193 IS OFFLINE")
+                self.player_count_label.config(text="NOTIFY OTHER USERS")
+                self.joinable_label.config(text="Server is not responding", foreground="red")
+                self.status_var.set("Server is offline - last checked: " + datetime.now().strftime('%H:%M:%S'))
+
+                # Clear player list
+                for item in self.players_tree.get_children():
+                    self.players_tree.delete(item)
+
             self.refresh_button.config(state=tk.NORMAL)
-            
+
         except queue.Empty:
             pass
-        
+
         self.root.after(100, self.process_queue)
 
     def update_player_durations(self):
@@ -584,6 +641,181 @@ class CombinedServerApp:
         )
         
         self.root.after(30000, self.check_sourcetv)
+
+    def save_ordinance_sequence(self, players):
+        # Save the current sequence to file
+        sequence_str = " ".join(self.current_command_sequence) + " REN"
+        utc_now = datetime.utcnow()
+        utc_str = utc_now.strftime("%Y-%m-%d %H:%M:%S UTC")
+        local_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S Local")
+        timestamp = utc_now.strftime("%Y-%m-%d_%H-%M-%S_UTC")
+        base_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+        output_dir = os.path.join(base_dir, "ord_output")
+        os.makedirs(output_dir, exist_ok=True)
+        filename = f"ordinance_sequence_{timestamp}.txt"
+        filepath = os.path.join(output_dir, filename)
+
+        # Get connected players at ren
+        player_list = []
+        for p in players:
+            if hasattr(p, 'name') and p.name:
+                player_list.append(self.clean_player_name(p.name))
+        player_list_str = "\n".join(player_list)
+
+        with open(filepath, "w") as f:
+            f.write(f"UTC Timestamp: {utc_str}\n")
+            f.write(f"Local Timestamp: {local_now}\n")
+            f.write("Ordinance Sequence:\n")
+            f.write(sequence_str + "\n\n")
+            f.write("Connected Players at REN:\n")
+            f.write(player_list_str + "\n")
+
+        # Append to master log
+        master_log_path = os.path.join(output_dir, "ordinance_master_log.txt")
+        with open(master_log_path, "a") as f:
+            f.write(f"{utc_str} | {local_now}: {sequence_str} | Players: {', '.join(player_list)}\n")
+
+        self.ordinance_commands.append(sequence_str)
+        self.current_command_sequence = []
+        self.update_ordinance_display()
+
+    def toggle_simulation(self):
+        """Toggle simulation mode on/off"""
+        self.simulation_mode = not self.simulation_mode
+
+        if self.simulation_mode:
+            # Stop auto-refresh during simulation
+            if self.auto_refresh_id:
+                self.root.after_cancel(self.auto_refresh_id)
+                self.auto_refresh_id = None
+            self.simulate_button.config(text="Stop Simulation")
+            self.status_var.set("Ordinance simulation started")
+            Thread(target=self.start_simulation, daemon=True).start()
+        else:
+            self.simulate_button.config(text="Simulate Ordinance Maps")
+            self.status_var.set("Ordinance simulation stopped")
+            # Resume auto-refresh if enabled
+            if self.auto_refresh_var.get():
+                self.schedule_auto_refresh()
+
+    def start_simulation(self):
+        """Cycle through simulated ordinance maps, stop and reload on ord_ren"""
+        import random
+
+        # Define multiple simulation map cycles
+        simulation_cycles = [
+            [
+                "ord_xdfunc",
+                "ord_ydfunc",
+                "ord_ren"
+            ],
+            [
+                "ord_xufunc",
+                "ord_yufunc",
+                "ord_zdfunc",
+                "ord_ren"
+            ],
+            [
+                "ord_afunc",
+                "ord_bfunc",
+                "ord_cfunc",
+                "ord_ren"
+            ]
+        ]
+        cycle_index = 0
+
+        # Prepare simulation log file with UTC timestamp in filename
+        sim_utc_now = datetime.utcnow()
+        sim_timestamp = sim_utc_now.strftime("%Y-%m-%d_%H-%M-%S_UTC")
+        base_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+        sim_output_dir = os.path.join(base_dir, "ord_sim_output")
+        os.makedirs(sim_output_dir, exist_ok=True)
+        sim_log_path = os.path.join(sim_output_dir, f"simulation_results_{sim_timestamp}.txt")
+        with open(sim_log_path, "w") as sim_log:
+            sim_log.write("Ordinance Simulation Results\n")
+            sim_log.write("="*32 + "\n\n")
+
+            while self.simulation_mode and cycle_index < len(simulation_cycles):
+                simulation_maps = simulation_cycles[cycle_index]
+                simulated_players = [
+                    f"SimPlayer{random.randint(1,99)}",
+                    f"SimPlayer{random.randint(100,199)}",
+                    f"SimPlayer{random.randint(200,299)}"
+                ]
+                for map_name in simulation_maps:
+                    if not self.simulation_mode:
+                        return
+
+                    # Update the map display
+                    self.map_label.config(text=f"Map: {map_name} (Simulation)")
+
+                    # Simulate player list in the UI
+                    for item in self.players_tree.get_children():
+                        self.players_tree.delete(item)
+                    for pname in simulated_players:
+                        self.players_tree.insert('', tk.END, values=(pname, random.randint(0,100), f"{random.randint(0,59)}:{random.randint(0,59):02d}"))
+
+                    # Process the map name (like it was a real map change)
+                    if map_name.startswith('ord_'):
+                        map_cmd = map_name[4:].lower()
+                        valid_commands = {
+                            "xufunc": "XU",
+                            "ydfunc": "YD",
+                            "xdfunc": "XD",
+                            "yufunc": "YU",
+                            "zufunc": "ZU",
+                            "zdfunc": "ZD",
+                            "afunc": "A",
+                            "bfunc": "B",
+                            "cfunc": "C",
+                            "ren": "REN"
+                        }
+
+                        if map_cmd in valid_commands:
+                            cmd_short = valid_commands[map_cmd]
+                            if cmd_short not in self.visited_maps:
+                                self.visited_maps.append(cmd_short)
+                                self.update_ordinance_display()
+
+                    # If ord_ren is reached, log the result, update display, then clear visited maps and break to load next cycle
+                    if map_name == "ord_ren":
+                        # Log simulation result for this cycle
+                        utc_now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+                        local_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S Local")
+                        sim_log.write(f"Cycle {cycle_index+1}:\n")
+                        sim_log.write("  Ordinance Sequence: " + ", ".join(self.visited_maps) + "\n")
+                        sim_log.write(f"  Time at REN: {utc_now} | {local_now}\n")
+                        sim_log.write("  Players at REN:\n")
+                        for pname in simulated_players:
+                            sim_log.write(f"    {pname}\n")
+                        sim_log.write("\n")
+                        self.update_ordinance_display()  # Show REN before clearing
+                        # Wait a moment so user can see REN in the UI
+                        for _ in range(10):  # ~1 second
+                            if not self.simulation_mode:
+                                return
+                            self.root.after(100)
+                            self.root.update()
+                        self.visited_maps.clear()
+                        self.update_ordinance_display()
+                        break
+
+                    # Wait 3 seconds before next map
+                    for _ in range(30):
+                        if not self.simulation_mode:
+                            return
+                        self.root.after(100)
+                        self.root.update()
+                cycle_index += 1
+
+            # After all cycles complete or simulation stopped
+            self.simulation_mode = False
+            self.simulate_button.config(text="Simulate Ordinance Maps")
+            self.map_label.config(text="Map: Simulation Complete")
+            self.status_var.set("Ordinance simulation completed")
+            # Resume auto-refresh if enabled
+            if self.auto_refresh_var.get():
+                self.schedule_auto_refresh()
 
 # run the app
 if __name__ == "__main__":
