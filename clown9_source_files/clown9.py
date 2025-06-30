@@ -28,6 +28,7 @@ class CombinedServerApp:
         self.ordinance_commands = []
         self.current_command_sequence = []
         self.in_ordinance_map = False
+        self.visited_maps = []  # Track visited ordinance maps
 
         # server status tracking
         self.query_fail_count = 0
@@ -51,9 +52,6 @@ class CombinedServerApp:
         self.sound_played_minute = None
         self.connecting_dots = 0
         
-        # visited maps tracking
-        self.visited_maps = []  # Track visited ordinance maps
-
         # simulation mode
         self.simulation_mode = False  # Track if we're in simulation mode
         
@@ -384,10 +382,10 @@ class CombinedServerApp:
         
         if current_minute == 59 and current_second >= 0:
             restart_status = "FIRST RESTART"
-            status_color = "red"
+            status_color = "blue"
         elif current_minute == 0 and current_second <= 10:  # Show for first 10 seconds of new hour
             restart_status = "SECOND RESTART"
-            status_color = "red"
+            status_color = "blue"
         else:
             restart_status = "IN SESSION"
             status_color = "green"
@@ -447,6 +445,7 @@ class CombinedServerApp:
                 if not self.in_ordinance_map:
                     self.in_ordinance_map = True
                     self.current_command_sequence = []
+                    self.visited_maps = []  # Reset visited maps when entering ordinance
                 self.process_ordinance_commands(players)
             else:
                 if self.in_ordinance_map:
@@ -476,7 +475,7 @@ class CombinedServerApp:
             "afunc": "A",
             "bfunc": "B",
             "cfunc": "C",
-            "ren": "REN"
+            "ren": "REN",
         }
         
         # Process player commands
@@ -487,6 +486,7 @@ class CombinedServerApp:
                     if cmd_key in name:
                         if cmd_short not in self.current_command_sequence:
                             self.current_command_sequence.append(cmd_short)
+                            self.update_ordinance_display()
         
         # Process map name
         try:
@@ -507,17 +507,23 @@ class CombinedServerApp:
     
     def update_ordinance_display(self):
         # Update ordinance command display with both visited maps and player commands
+        display_text = ""
         
         # Show visited maps if any
         if self.visited_maps:
-            display_text = "Recent commands: " + ", ".join(self.visited_maps) + "\n"
-
-        # Show player commands if any
+            display_text += "Visited maps: " + ", ".join(self.visited_maps) + "\n"
+        
+        # Show current command sequence if any
+        if self.current_command_sequence:
+            display_text += "Current sequence: " + " ".join(self.current_command_sequence) + "\n"
+        
+        # Show previous commands if any
         if self.ordinance_commands:
+            display_text += "\nPrevious sequences:\n"
             for cmd in reversed(self.ordinance_commands[-3:]):
                 display_text += f"• {cmd}\n"
         
-        if not self.visited_maps and not self.ordinance_commands:
+        if not display_text:
             display_text = "No commands recorded"
         
         self.ordinance_label.config(text=display_text.strip())
@@ -649,9 +655,14 @@ class CombinedServerApp:
         utc_str = utc_now.strftime("%Y-%m-%d %H:%M:%S UTC")
         local_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S Local")
         timestamp = utc_now.strftime("%Y-%m-%d_%H-%M-%S_UTC")
+        
+        # Get the directory where the script is running
         base_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-        output_dir = os.path.join(base_dir, "ord_output")
+        output_dir = os.path.join(base_dir, "ordinance_output")
+        
+        # Create the output directory if it doesn't exist
         os.makedirs(output_dir, exist_ok=True)
+        
         filename = f"ordinance_sequence_{timestamp}.txt"
         filepath = os.path.join(output_dir, filename)
 
@@ -677,6 +688,7 @@ class CombinedServerApp:
 
         self.ordinance_commands.append(sequence_str)
         self.current_command_sequence = []
+        self.visited_maps = []  # Clear visited maps after REN
         self.update_ordinance_display()
 
     def toggle_simulation(self):
@@ -728,7 +740,7 @@ class CombinedServerApp:
         sim_utc_now = datetime.utcnow()
         sim_timestamp = sim_utc_now.strftime("%Y-%m-%d_%H-%M-%S_UTC")
         base_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-        sim_output_dir = os.path.join(base_dir, "ord_sim_output")
+        sim_output_dir = os.path.join(base_dir, "ordinance_simulation_output")
         os.makedirs(sim_output_dir, exist_ok=True)
         sim_log_path = os.path.join(sim_output_dir, f"simulation_results_{sim_timestamp}.txt")
         with open(sim_log_path, "w") as sim_log:
