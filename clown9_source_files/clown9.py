@@ -9,10 +9,13 @@ import webbrowser
 import winsound
 import unicodedata
 import sys
+import time
+import threading
 
 # server addresses
 CGE7_193 = ('79.127.217.197', 22912)
 #CGE7_193 = ('178.156.191.21', 27015) #ignore this, it's lunascape's tf2 server. Used for testing.
+#CGE7_193 = ('192.168.1.56', 27015) #ignore this, it's a private test server.
 SOURCE_TV = ('79.127.217.197', 22913)
 
 class CombinedServerApp:
@@ -31,6 +34,8 @@ class CombinedServerApp:
         self.in_ordinance_map = False
         self.visited_maps = []  # Track visited ordinance maps
         self.ordinance_started = False  # Track if ordinance sequence has started
+        self.ordinance_sound_played = False  # Track if ordinance sound was played
+        self.last_ord_err_sound_time = 0  # Track last time ord_err sound was played
 
         # server status tracking
         self.query_fail_count = 0
@@ -38,7 +43,8 @@ class CombinedServerApp:
 
         # set window icon
         try:
-            self.root.iconbitmap("sourceclown.ico")
+            icon_path = os.path.join(os.path.dirname(sys.argv[0]), "resources", "sourceclown.ico")
+            self.root.iconbitmap(icon_path)
         except:
             pass
         
@@ -65,6 +71,9 @@ class CombinedServerApp:
         self.toggle_auto_refresh()
         self.root.after(250, self.animate_connecting)
         self.root.after(10000, self.check_sourcetv)
+
+        # Handle window close event
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
     def create_widgets(self):
         # create all ui widgets
@@ -211,7 +220,7 @@ class CombinedServerApp:
             anchor="e"
         )
         self.kulcs_label.pack(side=tk.RIGHT, anchor="se", pady=(0, 5))
-
+    
     def setup_ui(self):
         # set initial ui colors
         if self.dark_mode:
@@ -367,6 +376,18 @@ class CombinedServerApp:
         
         return prev_map, next_map, minutes_remaining, seconds_remaining
     
+    def play_sound(self, sound_file):
+        """Play a sound file in a separate thread"""
+        def play():
+            try:
+                sound_path = os.path.join(os.path.dirname(sys.argv[0]), "resources", sound_file)
+                if os.path.exists(sound_path):
+                    winsound.PlaySound(sound_path, winsound.SND_FILENAME | winsound.SND_ASYNC)
+            except Exception:
+                pass
+                
+        threading.Thread(target=play, daemon=True).start()
+
     def update_map_display(self):
         # update map and time display
         utc_now = datetime.utcnow()
@@ -408,14 +429,28 @@ class CombinedServerApp:
         
         self.restart_status_label.config(text=f"Server Status: {restart_status}", fg=status_color)
 
+        # --- Play time warning sounds at 30, 45, and 55 minutes after the hour ---
+        if not hasattr(self, 'last_time_sound_minute'):
+            self.last_time_sound_minute = None
+
+        if current_second == 0:  # Only check at the start of each minute
+            if current_minute == 30 and self.last_time_sound_minute != 30:
+                self.play_sound('thirty.wav')
+                self.last_time_sound_minute = 30
+            elif current_minute == 45 and self.last_time_sound_minute != 45:
+                self.play_sound('fifteen.wav')
+                self.last_time_sound_minute = 45
+            elif current_minute == 55 and self.last_time_sound_minute != 55:
+                self.play_sound('five.wav')
+                self.last_time_sound_minute = 55
+            elif current_minute not in (30, 45, 55):
+                self.last_time_sound_minute = None
+
+        # --- End time warning sounds ---
+
         if utc_now.minute == 59 and utc_now.second == 0:
             if self.sound_played_minute != utc_now.hour:
-                sound_path = os.path.join(os.getcwd(), "AIM_Sound.wav")
-                if os.path.exists(sound_path):
-                    try:
-                        winsound.PlaySound(sound_path, winsound.SND_FILENAME | winsound.SND_ASYNC)
-                    except Exception:
-                        pass
+                self.play_sound('new_cycle.wav')  # Changed from AIM_Sound.wav to new_cycle.wav
                 self.sound_played_minute = utc_now.hour
         elif utc_now.minute != 59:
             self.sound_played_minute = None
@@ -429,30 +464,75 @@ class CombinedServerApp:
         Thread(target=self.query_server, daemon=True).start()
     
     def query_server(self):
-        # query server and process ordinance logic
         try:
             info = a2s.info(CGE7_193)
             players = a2s.players(CGE7_193)
 
-            # Reset fail count on successful query
             self.query_fail_count = 0
 
-            if not info.map_name or info.map_name.lower() == "unknown":
-                current_cycle_map = self.get_map_based_on_utc_hour()
+            # --- custom map logic ---
+            if not hasattr(self, 'previous_map_name'):
+                self.previous_map_name = None
+            prev_map = self.previous_map_name
+            current_map_name = info.map_name.lower() if info.map_name else "unknown"
 
-                if current_cycle_map in ["ask", "askask"]:
-                    info.map_name = current_cycle_map
+            if current_map_name == "unknown" and prev_map == "2fort":
+                info.map_name = self.get_map_based_on_utc_hour()
+                current_map_name = info.map_name.lower()
+            elif current_map_name == "unknown" and prev_map == "noaccess":
+                info.map_name = "kurt"
+                current_map_name = "kurt"
+            elif prev_map == self.get_map_based_on_utc_hour() and current_map_name == "unknown":
+                info.map_name = "mazemazemazemaze"
+                current_map_name = "mazemazemazemaze"
 
-            # Check for ordinance start/end conditions
-            if info.map_name.lower() == "ordinance":
+            # --- Play sound effects only once per map visit ---
+            if not hasattr(self, 'map_sound_played'):
+                self.map_sound_played = {}
+            # Reset sound flag if map changes
+            if not hasattr(self, 'last_map_name'):
+                self.last_map_name = None
+            last_map_name = self.last_map_name
+
+            # If map changed, reset sound flag for this map
+            if last_map_name != current_map_name:
+                self.map_sound_played[current_map_name] = False
+
+            # Play sound only if not played for this map visit
+            if not self.map_sound_played.get(current_map_name, False):
+                if current_map_name == "ordinance":
+                    self.play_sound('ordinance.wav')
+                    self.ordinance_sound_played = True
+                else:
+                    self.ordinance_sound_played = False
+
+                if current_map_name == 'ord_error':
+                    self.play_sound('ord_err.wav')
+                    self.last_ord_err_sound_time = time.time()
+
+                if (current_map_name.startswith('ord_') and
+                    current_map_name != 'ord_ren' and
+                    current_map_name != 'ord_error'):
+                    self.play_sound('ord_mapchange.wav')
+
+                self.map_sound_played[current_map_name] = True
+
+            self.last_map_name = current_map_name
+            # --- end sound effects logic ---
+
+            self.previous_map_name = current_map_name
+
+            current_map = info.map_name.lower() if info.map_name else "unknown"
+
+            if current_map == "ordinance":
                 if not self.ordinance_started:
                     self.ordinance_started = True
-                    self.current_command_sequence = ["ORDINANCE"]  # Start with ORDINANCE
-                    self.visited_maps = []  # Reset visited maps
+                    self.current_command_sequence = ["ORDINANCE"]
+                    self.visited_maps = []
                     self.update_ordinance_display()
-            elif info.map_name.lower().startswith('ord_'):
+            elif current_map.startswith('ord_'):
                 if self.ordinance_started:
-                    map_cmd = info.map_name[4:].lower()  # Remove 'ord_' prefix
+                    map_cmd = info.map_name[4:].lower()
                     valid_commands = {
                         "xufunc": "XU",
                         "ydfunc": "YD",
@@ -465,22 +545,20 @@ class CombinedServerApp:
                         "cfunc": "C",
                         "ren": "REN"
                     }
-                    
+
                     if map_cmd in valid_commands:
                         cmd_short = valid_commands[map_cmd]
                         if cmd_short not in self.visited_maps:
                             self.visited_maps.append(cmd_short)
                             self.update_ordinance_display()
-                            
-                            # If we reached REN, save the sequence and reset
+
                             if map_cmd == "ren":
                                 self.save_ordinance_sequence(players)
                                 self.ordinance_started = False
             else:
-                # If we were in ordinance mode but map changed to non-ordinance
                 if self.ordinance_started:
                     self.ordinance_started = False
-                    if self.visited_maps:  # If we had any commands, save them as incomplete
+                    if self.visited_maps:
                         incomplete_sequence = " ".join(["ORDINANCE"] + self.visited_maps)
                         self.ordinance_commands.append(incomplete_sequence + " (INCOMPLETE)")
                         self.update_ordinance_display()
@@ -493,7 +571,7 @@ class CombinedServerApp:
                 self.queue.put(('offline', None))
             else:
                 self.queue.put(('error', str(e)))
-
+    
     def update_ordinance_display(self):
         # Update ordinance command display with both visited maps and player commands
         display_text = ""
@@ -595,7 +673,7 @@ class CombinedServerApp:
 
         except queue.Empty:
             pass
-
+        
         self.root.after(100, self.process_queue)
 
     def update_player_durations(self):
@@ -668,10 +746,13 @@ class CombinedServerApp:
             f.write("Connected Players at REN:\n")
             f.write(player_list_str + "\n")
 
-        # Append to master log
+        # Play the ord_ren sound when file is created
+        self.play_sound('ord_ren.wav')
+
+        # Append to master log (no player list)
         master_log_path = os.path.join(output_dir, "ordinance_master_log.txt")
         with open(master_log_path, "a") as f:
-            f.write(f"{utc_str} | {local_now}: {sequence_str} | Players: {', '.join(player_list)}\n")
+            f.write(f"{utc_str} | {local_now}: {sequence_str}\n")
 
         self.ordinance_commands.append(sequence_str)
         self.current_command_sequence = []
@@ -722,7 +803,7 @@ class CombinedServerApp:
             ]
         ]
         cycle_index = 0
-
+        
         # Prepare simulation log file with UTC timestamp in filename
         sim_utc_now = datetime.utcnow()
         sim_timestamp = sim_utc_now.strftime("%Y-%m-%d_%H-%M-%S_UTC")
@@ -748,6 +829,7 @@ class CombinedServerApp:
                 self.current_command_sequence = ["ORDINANCE"]
                 self.visited_maps = []
                 self.update_ordinance_display()
+                self.play_sound('ordinance.wav')
                 
                 # Wait a moment before starting sequence
                 for _ in range(10):
@@ -762,6 +844,14 @@ class CombinedServerApp:
 
                     # Update the map display
                     self.map_label.config(text=f"Map: {map_name} (Simulation)")
+
+                    # Play ord_err sound if needed
+                    if map_name == 'ord_err':
+                        self.play_sound('ord_err.wav')
+
+                    # Play ord_mapchange.wav on ord_ map change (except ord_ren)
+                    if map_name.startswith('ord_') and map_name != 'ord_ren' and map_name != 'ord_err':
+                        self.play_sound('ord_mapchange.wav')
 
                     # Simulate player list in the UI
                     for item in self.players_tree.get_children():
@@ -790,7 +880,7 @@ class CombinedServerApp:
                             if cmd_short not in self.visited_maps:
                                 self.visited_maps.append(cmd_short)
                                 self.update_ordinance_display()
-
+                    
                     # If ord_ren is reached, log the result, update display, then clear visited maps and break to load next cycle
                     if map_name == "ord_ren":
                         # Log simulation result for this cycle
@@ -804,6 +894,7 @@ class CombinedServerApp:
                             sim_log.write(f"    {pname}\n")
                         sim_log.write("\n")
                         self.update_ordinance_display()  # Show REN before clearing
+                        self.play_sound('ord_ren.wav')
                         # Wait a moment so user can see REN in the UI
                         for _ in range(10):  # ~1 second
                             if not self.simulation_mode:
@@ -814,7 +905,7 @@ class CombinedServerApp:
                         self.visited_maps.clear()
                         self.update_ordinance_display()
                         break
-
+                    
                     # Wait 3 seconds before next map
                     for _ in range(30):
                         if not self.simulation_mode:
@@ -832,8 +923,27 @@ class CombinedServerApp:
             if self.auto_refresh_var.get():
                 self.schedule_auto_refresh()
 
+    def on_close(self):
+        try:
+            sound_path = os.path.join(os.path.dirname(sys.argv[0]), "resources", "close.wav")
+            if os.path.exists(sound_path):
+                winsound.PlaySound(sound_path, winsound.SND_FILENAME | winsound.SND_ASYNC)
+                # Wait a bit so the sound can play before closing
+                self.root.after(175, self.root.destroy)
+                return
+        except Exception:
+            pass
+        self.root.destroy()
+
 # run the app
 if __name__ == "__main__":
     root = tk.Tk()
+    # Play open.wav on launch
+    try:
+        sound_path = os.path.join(os.path.dirname(sys.argv[0]), "resources", "open.wav")
+        if os.path.exists(sound_path):
+            winsound.PlaySound(sound_path, winsound.SND_FILENAME | winsound.SND_ASYNC)
+    except Exception:
+        pass
     app = CombinedServerApp(root)
     root.mainloop()
