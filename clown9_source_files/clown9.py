@@ -12,7 +12,7 @@ import sys
 
 # server addresses
 CGE7_193 = ('79.127.217.197', 22912)
-#CGE7_193 = ('178.156.191.21', 27015) #ignore this, it's lunascape's server
+#CGE7_193 = ('178.156.191.21', 27015) #ignore this, it's lunascape's tf2 server. Used for testing.
 SOURCE_TV = ('79.127.217.197', 22913)
 
 class CombinedServerApp:
@@ -30,6 +30,7 @@ class CombinedServerApp:
         self.current_command_sequence = []
         self.in_ordinance_map = False
         self.visited_maps = []  # Track visited ordinance maps
+        self.ordinance_started = False  # Track if ordinance sequence has started
 
         # server status tracking
         self.query_fail_count = 0
@@ -64,7 +65,7 @@ class CombinedServerApp:
         self.toggle_auto_refresh()
         self.root.after(250, self.animate_connecting)
         self.root.after(10000, self.check_sourcetv)
-    
+
     def create_widgets(self):
         # create all ui widgets
         self.main_frame = ttk.Frame(self.root)
@@ -95,7 +96,7 @@ class CombinedServerApp:
         
         self.ordinance_label = tk.Label(
             self.ordinance_frame,
-            text="No commands recorded",
+            text="No commands to record yet",
             font=("Arial", 10),
             wraplength=250,
             justify="left"
@@ -210,7 +211,7 @@ class CombinedServerApp:
             anchor="e"
         )
         self.kulcs_label.pack(side=tk.RIGHT, anchor="se", pady=(0, 5))
-    
+
     def setup_ui(self):
         # set initial ui colors
         if self.dark_mode:
@@ -409,7 +410,7 @@ class CombinedServerApp:
 
         if utc_now.minute == 59 and utc_now.second == 0:
             if self.sound_played_minute != utc_now.hour:
-                sound_path = os.path.join(os.getcwd(), "AIM_Sound.mp3")
+                sound_path = os.path.join(os.getcwd(), "AIM_Sound.wav")
                 if os.path.exists(sound_path):
                     try:
                         winsound.PlaySound(sound_path, winsound.SND_FILENAME | winsound.SND_ASYNC)
@@ -442,19 +443,48 @@ class CombinedServerApp:
                 if current_cycle_map in ["ask", "askask"]:
                     info.map_name = current_cycle_map
 
+            # Check for ordinance start/end conditions
             if info.map_name.lower() == "ordinance":
-                if not self.in_ordinance_map:
-                    self.in_ordinance_map = True
-                    self.current_command_sequence = []
-                    self.visited_maps = []  # Reset visited maps when entering ordinance
-                self.process_ordinance_commands(players)
+                if not self.ordinance_started:
+                    self.ordinance_started = True
+                    self.current_command_sequence = ["ORDINANCE"]  # Start with ORDINANCE
+                    self.visited_maps = []  # Reset visited maps
+                    self.update_ordinance_display()
+            elif info.map_name.lower().startswith('ord_'):
+                if self.ordinance_started:
+                    map_cmd = info.map_name[4:].lower()  # Remove 'ord_' prefix
+                    valid_commands = {
+                        "xufunc": "XU",
+                        "ydfunc": "YD",
+                        "xdfunc": "XD",
+                        "yufunc": "YU",
+                        "zufunc": "ZU",
+                        "zdfunc": "ZD",
+                        "afunc": "A",
+                        "bfunc": "B",
+                        "cfunc": "C",
+                        "ren": "REN"
+                    }
+                    
+                    if map_cmd in valid_commands:
+                        cmd_short = valid_commands[map_cmd]
+                        if cmd_short not in self.visited_maps:
+                            self.visited_maps.append(cmd_short)
+                            self.update_ordinance_display()
+                            
+                            # If we reached REN, save the sequence and reset
+                            if map_cmd == "ren":
+                                self.save_ordinance_sequence(players)
+                                self.ordinance_started = False
             else:
-                if self.in_ordinance_map:
-                    self.in_ordinance_map = False
-                    if self.current_command_sequence:
-                        self.ordinance_commands.append(" ".join(self.current_command_sequence) + " REN")
-                        self.current_command_sequence = []
+                # If we were in ordinance mode but map changed to non-ordinance
+                if self.ordinance_started:
+                    self.ordinance_started = False
+                    if self.visited_maps:  # If we had any commands, save them as incomplete
+                        incomplete_sequence = " ".join(["ORDINANCE"] + self.visited_maps)
+                        self.ordinance_commands.append(incomplete_sequence + " (INCOMPLETE)")
                         self.update_ordinance_display()
+                    self.visited_maps = []
 
             self.queue.put(('success', info, players))
         except Exception as e:
@@ -464,59 +494,15 @@ class CombinedServerApp:
             else:
                 self.queue.put(('error', str(e)))
 
-    def process_ordinance_commands(self, players):
-        # Process both player commands and map names
-        valid_commands = {
-            "xufunc": "XU",
-            "ydfunc": "YD",
-            "xdfunc": "XD",
-            "yufunc": "YU",
-            "zufunc": "ZU",
-            "zdfunc": "ZD",
-            "afunc": "A",
-            "bfunc": "B",
-            "cfunc": "C",
-            "ren": "REN",
-        }
-        
-        # Process player commands
-        for player in players:
-            if hasattr(player, 'name') and player.name:
-                name = player.name.lower()
-                for cmd_key, cmd_short in valid_commands.items():
-                    if cmd_key in name:
-                        if cmd_short not in self.current_command_sequence:
-                            self.current_command_sequence.append(cmd_short)
-                            self.update_ordinance_display()
-        
-        # Process map name
-        try:
-            info = a2s.info(CGE7_193)
-            if info.map_name.lower().startswith('ord_'):
-                map_cmd = info.map_name[4:].lower()  # Remove 'ord_' prefix
-                if map_cmd in valid_commands:
-                    cmd_short = valid_commands[map_cmd]
-                    if cmd_short not in self.visited_maps:
-                        self.visited_maps.append(cmd_short)
-                        self.update_ordinance_display()
-        except:
-            pass
-        
-        # Check for REN condition
-        if self.current_command_sequence and any("ren" in p.name.lower() for p in players if hasattr(p, 'name') and p.name):
-            self.save_ordinance_sequence(players)
-    
     def update_ordinance_display(self):
         # Update ordinance command display with both visited maps and player commands
         display_text = ""
         
-        # Show visited maps if any
-        if self.visited_maps:
-            display_text += "Visited maps: " + ", ".join(self.visited_maps) + "\n"
-        
-        # Show current command sequence if any
-        if self.current_command_sequence:
-            display_text += "Current sequence: " + " ".join(self.current_command_sequence) + "\n"
+        # Show current sequence if any
+        if self.ordinance_started:
+            display_text = "Current sequence: ORDINANCE " + " ".join(self.visited_maps) + "\n"
+        elif self.visited_maps:
+            display_text = "Last sequence: ORDINANCE " + " ".join(self.visited_maps) + "\n"
         
         # Show previous commands if any
         if self.ordinance_commands:
@@ -651,7 +637,7 @@ class CombinedServerApp:
 
     def save_ordinance_sequence(self, players):
         # Save the current sequence to file
-        sequence_str = " ".join(self.current_command_sequence) + " REN"
+        sequence_str = "ORDINANCE " + " ".join(self.visited_maps)
         utc_now = datetime.utcnow()
         utc_str = utc_now.strftime("%Y-%m-%d %H:%M:%S UTC")
         local_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S Local")
@@ -755,6 +741,21 @@ class CombinedServerApp:
                     f"SimPlayer{random.randint(100,199)}",
                     f"SimPlayer{random.randint(200,299)}"
                 ]
+                
+                # Start with ordinance map to trigger ORDINANCE
+                self.map_label.config(text=f"Map: ordinance (Simulation)")
+                self.ordinance_started = True
+                self.current_command_sequence = ["ORDINANCE"]
+                self.visited_maps = []
+                self.update_ordinance_display()
+                
+                # Wait a moment before starting sequence
+                for _ in range(10):
+                    if not self.simulation_mode:
+                        return
+                    self.root.after(100)
+                    self.root.update()
+                
                 for map_name in simulation_maps:
                     if not self.simulation_mode:
                         return
@@ -796,7 +797,7 @@ class CombinedServerApp:
                         utc_now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
                         local_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S Local")
                         sim_log.write(f"Cycle {cycle_index+1}:\n")
-                        sim_log.write("  Ordinance Sequence: " + ", ".join(self.visited_maps) + "\n")
+                        sim_log.write("  Ordinance Sequence: ORDINANCE " + " ".join(self.visited_maps) + "\n")
                         sim_log.write(f"  Time at REN: {utc_now} | {local_now}\n")
                         sim_log.write("  Players at REN:\n")
                         for pname in simulated_players:
@@ -809,6 +810,7 @@ class CombinedServerApp:
                                 return
                             self.root.after(100)
                             self.root.update()
+                        self.ordinance_started = False
                         self.visited_maps.clear()
                         self.update_ordinance_display()
                         break
