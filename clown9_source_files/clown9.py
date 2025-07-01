@@ -12,6 +12,7 @@ import sys
 
 # server addresses
 CGE7_193 = ('79.127.217.197', 22912)
+#CGE7_193 = ('178.156.191.21', 27015) #ignore this, it's lunascape's server
 SOURCE_TV = ('79.127.217.197', 22913)
 
 class CombinedServerApp:
