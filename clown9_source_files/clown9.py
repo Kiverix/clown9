@@ -29,7 +29,6 @@ class CombinedServerApp:
         self.dark_mode = True
         
         # ordinance tracking
-        self.ordinance_commands = []
         self.current_command_sequence = []
         self.in_ordinance_map = False
         self.visited_maps = []  # Track visited ordinance maps
@@ -59,10 +58,18 @@ class CombinedServerApp:
         self.player_data_time = None
         self.sound_played_minute = None
         self.connecting_dots = 0
-        
+
         # simulation mode
         self.simulation_mode = False  # Track if we're in simulation mode
-        
+
+        # --- Ordinance repeat/connection gap tracking ---
+        self.last_seen_map = None
+        self.last_seen_ordinance_state = None
+        self.connection_gap_count = 0
+        self.max_connection_gap = 3  # Max allowed gaps before resetting
+        self.last_input_time = None
+        self.input_cooldown = 5  # seconds between accepting same input again
+
         # start refresh loops
         self.refresh_data()
         self.root.after(100, self.process_queue)
@@ -70,7 +77,7 @@ class CombinedServerApp:
         self.root.after(1000, self.update_player_durations)
         self.toggle_auto_refresh()
         self.root.after(250, self.animate_connecting)
-        self.root.after(10000, self.check_sourcetv)
+        self.root.after(750, self.check_sourcetv)
 
         # Handle window close event
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -100,7 +107,7 @@ class CombinedServerApp:
         self.sourcetv_status_label.pack(pady=(10, 0))
 
         # ordinance commands frame
-        self.ordinance_frame = ttk.LabelFrame(self.server_info_frame, text="Latest Ordinance Commands")
+        self.ordinance_frame = ttk.LabelFrame(self.server_info_frame, text="Current Ordinance Commands")
         self.ordinance_frame.pack(fill=tk.X, pady=(10, 0))
         
         self.ordinance_label = tk.Label(
@@ -183,7 +190,7 @@ class CombinedServerApp:
         self.dark_mode_button = ttk.Button(
             self.bottom_frame,
             text="Toggle Dark Mode",
-            command=self.toggle_dark_mode
+            command=self.toggle_dark_mode,
         )
         self.dark_mode_button.pack(side=tk.LEFT, padx=10)
         
@@ -320,7 +327,7 @@ class CombinedServerApp:
         # schedule auto refresh
         if self.auto_refresh_var.get():
             self.refresh_data()
-            self.auto_refresh_id = self.root.after(5000, self.schedule_auto_refresh)
+            self.auto_refresh_id = self.root.after(5000, self.schedule_auto_refresh)  # 1000 ms = 1 second
     
     def get_map_based_on_utc_hour(self, hour=None):
         # get map name based on utc hour
@@ -468,8 +475,43 @@ class CombinedServerApp:
             info = a2s.info(CGE7_193)
             players = a2s.players(CGE7_193)
 
-            self.query_fail_count = 0
+            # Reset gap counter on successful connection
+            self.connection_gap_count = 0
 
+            current_map = info.map_name.lower() if info.map_name else "unknown"
+
+            # --- custom map logic for unknown maps ---
+            if not hasattr(self, 'previous_map_name'):
+                self.previous_map_name = None
+            prev_map = self.previous_map_name
+            current_map_name = info.map_name.lower() if info.map_name else "unknown"
+
+            if current_map_name == "unknown":
+                # If previous map was 2fort, set to current cycle map
+                if prev_map == "2fort":
+                    info.map_name = self.get_map_based_on_utc_hour()
+                    current_map_name = info.map_name.lower()
+                # If previous map was ask or askask, set to mazemazemazemaze
+                elif prev_map in ("ask", "askask"):
+                    info.map_name = "mazemazemazemaze"
+                    current_map_name = "mazemazemazemaze"
+                # If previous map was noaccess, set to kurt
+                elif prev_map == "noaccess":
+                    info.map_name = "kurt"
+                    current_map_name = "kurt"
+                # Otherwise, leave as unknown
+
+            # Save for next call
+            self.previous_map_name = info.map_name.lower() if info.map_name else "unknown"
+            current_map = info.map_name.lower() if info.map_name else "unknown"
+
+            # Handle ordinance tracking during connection gaps
+            if (self.last_seen_map == current_map and 
+                self.last_seen_ordinance_state is not None):
+                # We've reconnected to same map - maintain ordinance state
+                self.ordinance_started = self.last_seen_ordinance_state["started"]
+                self.visited_maps = self.last_seen_ordinance_state["visited_maps"]
+            
             # --- custom map logic ---
             if not hasattr(self, 'previous_map_name'):
                 self.previous_map_name = None
@@ -510,10 +552,18 @@ class CombinedServerApp:
                     self.play_sound('ord_err.wav')
                     self.last_ord_err_sound_time = time.time()
 
+                if current_map_name == 'ord_cry':
+                    self.play_sound('ord_cry.wav')
+
                 if (current_map_name.startswith('ord_') and
                     current_map_name != 'ord_ren' and
-                    current_map_name != 'ord_error'):
+                    current_map_name != 'ord_error' and
+                    current_map_name != 'ord_cry'):
                     self.play_sound('ord_mapchange.wav')
+                elif not current_map_name.startswith('ord'):
+                    # Only play mapswitch.wav if this is not the very first map after app start
+                    if self.last_map_name is not None:
+                        self.play_sound('mapswitch.wav')
 
                 self.map_sound_played[current_map_name] = True
 
@@ -524,15 +574,17 @@ class CombinedServerApp:
 
             current_map = info.map_name.lower() if info.map_name else "unknown"
 
+            # --- Ordinance input tracking with connection gap logic ---
             if current_map == "ordinance":
                 if not self.ordinance_started:
                     self.ordinance_started = True
                     self.current_command_sequence = ["ORDINANCE"]
                     self.visited_maps = []
+                    self.last_input_time = None  # Reset input timer
                     self.update_ordinance_display()
             elif current_map.startswith('ord_'):
                 if self.ordinance_started:
-                    map_cmd = info.map_name[4:].lower()
+                    map_cmd = current_map[4:].lower()
                     valid_commands = {
                         "xufunc": "XU",
                         "ydfunc": "YD",
@@ -548,45 +600,80 @@ class CombinedServerApp:
 
                     if map_cmd in valid_commands:
                         cmd_short = valid_commands[map_cmd]
-                        if cmd_short not in self.visited_maps:
+                        current_time = time.time()
+                        
+                        # Determine if we should count this input
+                        should_count = False
+                        
+                        # Always count if it's a different command
+                        if not self.visited_maps or cmd_short != self.visited_maps[-1]:
+                            should_count = True
+                        # Count if we had a connection gap and cooldown has passed
+                        elif (self.connection_gap_count > 0 and 
+                              (self.last_input_time is None or 
+                               current_time - self.last_input_time >= self.input_cooldown)):
+                            should_count = True
+                        
+                        if should_count:
                             self.visited_maps.append(cmd_short)
+                            self.last_input_time = current_time
                             self.update_ordinance_display()
-
+                            
                             if map_cmd == "ren":
                                 self.save_ordinance_sequence(players)
                                 self.ordinance_started = False
+                                self.last_input_time = None
             else:
                 if self.ordinance_started:
                     self.ordinance_started = False
-                    if self.visited_maps:
-                        incomplete_sequence = " ".join(["ORDINANCE"] + self.visited_maps)
-                        self.ordinance_commands.append(incomplete_sequence + " (INCOMPLETE)")
-                        self.update_ordinance_display()
-                    self.visited_maps = []
+                    self.update_ordinance_display()
 
+            # Update last seen state
+            self.last_seen_map = current_map
+            self.last_seen_ordinance_state = {
+                "started": self.ordinance_started,
+                "visited_maps": self.visited_maps.copy()
+            }
+            
             self.queue.put(('success', info, players))
+            
         except Exception as e:
-            self.query_fail_count += 1
-            if self.query_fail_count >= self.max_query_fails:
-                self.queue.put(('offline', None))
+            self.connection_gap_count += 1
+            
+            # If we're within allowed gap limit and were tracking ordinance, maintain state
+            if (self.connection_gap_count <= self.max_connection_gap and 
+                self.last_seen_ordinance_state is not None):
+                
+                # Reset input timer to allow repeats after gap
+                self.last_input_time = None
+                
+                # Create dummy info with last seen map
+                class DummyInfo:
+                    def __init__(self, map_name):
+                        self.map_name = map_name
+                        self.player_count = 0
+                        self.max_players = 0
+                
+                info = DummyInfo(self.last_seen_map)
+                self.queue.put(('success', info, []))
+                
+                self.status_var.set(f"Connection gap {self.connection_gap_count}/{self.max_connection_gap} - maintaining state")
             else:
-                self.queue.put(('error', str(e)))
+                # Too many gaps or no previous state - go offline
+                if self.connection_gap_count >= self.max_connection_gap:
+                    self.queue.put(('offline', None))
+                else:
+                    self.queue.put(('error', str(e)))
     
     def update_ordinance_display(self):
-        # Update ordinance command display with both visited maps and player commands
+        # Update ordinance command display with only the current sequence
         display_text = ""
         
         # Show current sequence if any
         if self.ordinance_started:
-            display_text = "Current sequence: ORDINANCE " + " ".join(self.visited_maps) + "\n"
+            display_text = "Current sequence: ORDINANCE " + " ".join(self.visited_maps)
         elif self.visited_maps:
-            display_text = "Last sequence: ORDINANCE " + " ".join(self.visited_maps) + "\n"
-        
-        # Show previous commands if any
-        if self.ordinance_commands:
-            display_text += "\nPrevious sequences:\n"
-            for cmd in reversed(self.ordinance_commands[-3:]):
-                display_text += f"• {cmd}\n"
+            display_text = "Last sequence: ORDINANCE " + " ".join(self.visited_maps)
         
         if not display_text:
             display_text = "No commands recorded"
@@ -626,31 +713,50 @@ class CombinedServerApp:
                 else:
                     self.joinable_label.config(text="Server is NOT joinable on TF2. Please wait for the next hour.", foreground="red")
 
-                for item in self.players_tree.get_children():
-                    self.players_tree.delete(item)
+                # Only refresh player list if explicitly requested (not on every server refresh)
+                if getattr(self, "refresh_players_next", False):
+                    for item in self.players_tree.get_children():
+                        self.players_tree.delete(item)
 
-                self.player_data = []
-                for player in players:
-                    self.player_data.append({
-                        "name": player.name,
-                        "score": player.score,
-                        "duration": float(player.duration)
-                    })
-                self.player_data_time = datetime.now()
+                    self.player_data = []
+                    for player in players:
+                        self.player_data.append({
+                            "name": player.name,
+                            "score": player.score,
+                            "duration": float(player.duration)
+                        })
+                    self.player_data_time = datetime.now()
 
-                for pdata in self.player_data:
-                    name = self.clean_player_name(pdata["name"])
-                    minutes = int(pdata["duration"]) // 60
-                    seconds = int(pdata["duration"]) % 60
-                    duration_str = f"{minutes}:{seconds:02d}"
-                    item_id = self.players_tree.insert('', tk.END, values=(
-                        name,
-                        pdata["score"],
-                        duration_str
-                    ))
-                    if name.strip().lower() == "the clown":
-                        self.players_tree.tag_configure("bold_clown", font=("Arial", 10, "bold"))
-                        self.players_tree.item(item_id, tags=("bold_clown",))
+                    for pdata in self.player_data:
+                        name = self.clean_player_name(pdata["name"])
+                        minutes = int(pdata["duration"]) // 60
+                        seconds = int(pdata["duration"]) % 60
+                        duration_str = f"{minutes}:{seconds:02d}"
+                        item_id = self.players_tree.insert('', tk.END, values=(
+                            name,
+                            pdata["score"],
+                            duration_str
+                        ))
+                        lower_name = name.lower()
+                        if "strider" in lower_name or "fuck interloper" in lower_name or "000.jar" in lower_name:
+                            self.players_tree.tag_configure("red_name", foreground="red")
+                            self.players_tree.item(item_id, tags=("red_name",))
+                        # Bold light blue for trusted names
+                        elif (
+                            "weej" in lower_name or
+                            "sierra" in lower_name or
+                            "clown" in lower_name or
+                            "toaleken" in lower_name or
+                            "tomokush" in lower_name or
+                            "novaandrew" in lower_name or
+                            "roulxs" in lower_name or
+                            "aruzaniac" in lower_name or
+                            "clown" in lower_name or
+                            "alistair" in lower_name
+                        ):
+                            self.players_tree.tag_configure("bold_blue", foreground="#4fc3f7", font=("Arial", 10, "bold"))
+                            self.players_tree.item(item_id, tags=("bold_blue",))
+                    self.refresh_players_next = False  # Reset flag
 
                 self.status_var.set(f"Last updated: {datetime.now().strftime('%H:%M:%S')} | {len(players)} players online")
 
@@ -692,8 +798,10 @@ class CombinedServerApp:
                     pdata["score"],
                     duration_str
                 ))
-        self.root.after(1000, self.update_player_durations)
-    
+        # Refresh player list every 5 seconds
+        self.refresh_players_next = True
+        self.root.after(5000, self.refresh_data)
+
     def check_sourcetv(self):
         # check if sourcetv is online and update label
         try:
@@ -711,7 +819,7 @@ class CombinedServerApp:
             fg=status_color
         )
         
-        self.root.after(30000, self.check_sourcetv)
+        self.root.after(1000, self.check_sourcetv)
 
     def save_ordinance_sequence(self, players):
         # Save the current sequence to file
@@ -754,7 +862,6 @@ class CombinedServerApp:
         with open(master_log_path, "a") as f:
             f.write(f"{utc_str} | {local_now}: {sequence_str}\n")
 
-        self.ordinance_commands.append(sequence_str)
         self.current_command_sequence = []
         self.visited_maps = []  # Clear visited maps after REN
         self.update_ordinance_display()

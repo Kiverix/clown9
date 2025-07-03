@@ -1,0 +1,27 @@
+Ordinance Simulation Results
+================================
+
+Cycle 1:
+  Ordinance Sequence: ORDINANCE XD YD REN
+  Time at REN: 2025-07-02 16:47:32 UTC | 2025-07-02 18:47:32 Local
+  Players at REN:
+    SimPlayer21
+    SimPlayer141
+    SimPlayer251
+
+Cycle 2:
+  Ordinance Sequence: ORDINANCE XU YU ZD REN
+  Time at REN: 2025-07-02 16:47:44 UTC | 2025-07-02 18:47:44 Local
+  Players at REN:
+    SimPlayer34
+    SimPlayer182
+    SimPlayer211
+
+Cycle 3:
+  Ordinance Sequence: ORDINANCE A B C REN
+  Time at REN: 2025-07-02 16:47:56 UTC | 2025-07-02 18:47:56 Local
+  Players at REN:
+    SimPlayer28
+    SimPlayer162
+    SimPlayer251
+
