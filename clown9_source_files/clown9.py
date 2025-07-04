@@ -13,9 +13,8 @@ import time
 import threading
 
 # Constants for server addresses
-CGE7_193 = ('79.127.217.197', 22912)
-#CGE7_193 = ('79.127.217.197', 22912)
-#CGE7_193 = ('79.127.217.197', 22912)
+CGE7_193 = ('79.127.217.197', 22912) # The real cge7-193
+#CGE7_193 = ('192.168.1.56', 27015) # Test server, do not use it.
 SOURCE_TV = ('79.127.217.197', 22913)
 
 # Constants for sound files
@@ -31,7 +30,8 @@ SOUND_FILES = {
     'five': 'five.wav',
     'new_cycle': 'new_cycle.wav',
     'open': 'open.wav',
-    'close': 'close.wav'
+    'close': 'close.wav',
+    'toggle': 'toggle.wav'
 }
 
 class CombinedServerApp:
@@ -288,6 +288,7 @@ class CombinedServerApp:
     def toggle_dark_mode(self):
         """Toggle between dark and light mode"""
         self.dark_mode = not self.dark_mode
+        self.play_sound('toggle')  # Play toggle.wav on theme switch
         if self.dark_mode:
             self.apply_dark_theme()
         else:
@@ -722,7 +723,7 @@ class CombinedServerApp:
             if self.connection_gap_count >= self.max_connection_gap:
                 self.queue.put(('offline', None))
             else:
-                self.queue.put(('error', str(e)))
+                self.queue.put(('error', str()))
 
     def update_ordinance_display(self):
         """Update the ordinance command display"""
@@ -793,10 +794,8 @@ class CombinedServerApp:
                 foreground="red"
             )
 
-        # Only refresh player list if explicitly requested (not on every server refresh)
-        if self.refresh_players_next:
-            self.update_player_list(players)
-            self.refresh_players_next = False  # Reset flag
+        # Always refresh player list with server info
+        self.update_player_list(players)
 
         self.status_var.set(f"Last updated: {datetime.now().strftime('%H:%M:%S')} | {len(players)} players online")
 
@@ -854,7 +853,7 @@ class CombinedServerApp:
             self.players_tree.item(item_id, tags=("bold_blue",))
 
     def update_player_durations(self):
-        """Update player durations in the list"""
+        """Update player durations in the list every second"""
         if self.player_data and self.player_data_time:
             elapsed = (datetime.now() - self.player_data_time).total_seconds()
             for idx, pdata in enumerate(self.player_data):
@@ -869,8 +868,8 @@ class CombinedServerApp:
                     pdata["score"],
                     duration_str
                 ))
-        # Refresh player list every 5 seconds
-        self.refresh_players_next = True
+        # Refresh durations every second
+        self.root.after(1000, self.update_player_durations)
         self.root.after(5000, self.refresh_data)
 
     def check_sourcetv(self):
